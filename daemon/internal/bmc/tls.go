@@ -22,7 +22,7 @@ import (
 // verify the fingerprint matches. A MITM after initial enrollment is detected.
 //
 // An operator who needs to reset the pin (e.g. after a BMC firmware update
-// that regenerates the cert) uses POST /api/bmc/reset-fingerprint, which
+// that regenerates the cert) uses POST /api/bmc/reset-cert, which
 // requires an AAL2 session.
 type tlsPolicy int
 
@@ -40,7 +40,7 @@ const (
 
 // PinnedCert holds the BMC TLS certificate fingerprint.
 type PinnedCert struct {
-	Fingerprint string    // SHA-256 of DER-encoded leaf certificate, hex-encoded
+	Fingerprint string // SHA-256 of DER-encoded leaf certificate, hex-encoded
 	PinnedAt    time.Time
 }
 
@@ -108,7 +108,7 @@ func pinnedVerifier(expectedFingerprint string) func([][]byte, [][]*x509.Certifi
 			return fmt.Errorf(
 				"BMC certificate fingerprint mismatch: got %s, want %s. "+
 					"If the BMC firmware was recently updated (which may regenerate its certificate), "+
-					"reset the stored fingerprint via POST /api/bmc/reset-fingerprint. "+
+					"reset the stored fingerprint via POST /api/bmc/reset-cert (BMC page: Reset certificate). "+
 					"If you did not update the BMC firmware, this may indicate a MITM attack.",
 				actual, expectedFingerprint)
 		}

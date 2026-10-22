@@ -22,6 +22,8 @@ func TestSessionMiddlewarePublicPaths(t *testing.T) {
 		{"POST", "/api/auth/totp/verify", true}, // second login step: pending token, no session yet
 		{"POST", "/api/gitops/webhook", true},   // HMAC signature or token
 		{"POST", "/api/config/sync/peer/gitops", true},
+		{"POST", "/api/git-sync/repos/webhook/3", true},       // stack push notification: signature
+		{"POST", "/api/git-sync/repos/webhook-secret", false}, // creating the secret needs a session
 		{"POST", "/api/auth/totp/setup", false},
 		{"GET", "/api/gitops/status", false},
 		{"POST", "/api/gitops/../auth/totp/setup", false},

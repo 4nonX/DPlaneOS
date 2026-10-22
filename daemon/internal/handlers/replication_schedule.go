@@ -45,17 +45,21 @@ func NewReplicationScheduleHandler(db *sql.DB) *ReplicationScheduleHandler {
 // ReplicationSchedule defines when and how to trigger replication.
 // Connection details are resolved at runtime via RemoteID - see Remote struct.
 type ReplicationSchedule struct {
-	ID                     string     `json:"id"`
-	Name                   string     `json:"name"`
-	SourceDataset          string     `json:"source_dataset"`
-	RemoteID               string     `json:"remote_id"`            // references a Remote peer
-	RemotePool             string     `json:"remote_pool"`          // destination pool/dataset on the remote
-	Interval               string     `json:"interval"`             // "hourly","daily","weekly","manual"
-	TriggerOnSnapshot      bool       `json:"trigger_on_snapshot"`  // replicate after each auto-snapshot
-	Incremental            bool       `json:"incremental"`          // use -i with last replicated snapshot as base
-	Resume                 bool       `json:"resume"`               // check for resume token before sending
-	Compress               bool       `json:"compress"`
-	NonRecursive           bool       `json:"non_recursive,omitempty"` // when true, omit -R from zfs send
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	SourceDataset     string `json:"source_dataset"`
+	RemoteID          string `json:"remote_id"`           // references a Remote peer
+	RemotePool        string `json:"remote_pool"`         // destination pool/dataset on the remote
+	Interval          string `json:"interval"`            // "hourly","daily","weekly","manual"
+	TriggerOnSnapshot bool   `json:"trigger_on_snapshot"` // replicate after each auto-snapshot
+	Incremental       bool   `json:"incremental"`         // use -i with last replicated snapshot as base
+	Resume            bool   `json:"resume"`              // check for resume token before sending
+	Compress          bool   `json:"compress"`
+	NonRecursive      bool   `json:"non_recursive,omitempty"` // when true, omit -R from zfs send
+	// AllowFromScratch lets a run destroy the remote dataset and send it in
+	// full when the remote has snapshots but none in common with the source.
+	// Off by default: the remote may hold the only copy of older snapshots.
+	AllowFromScratch       bool       `json:"allow_from_scratch,omitempty"`
 	RateLimitMB            int        `json:"rate_limit_mb"`
 	Enabled                bool       `json:"enabled"`
 	LastRun                *time.Time `json:"last_run,omitempty"`
@@ -229,6 +233,7 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 			schedules[i].RateLimitMB = req.RateLimitMB
 			schedules[i].Enabled = req.Enabled
 			schedules[i].NonRecursive = req.NonRecursive
+			schedules[i].AllowFromScratch = req.AllowFromScratch
 			return schedules, nil
 		}
 		return nil, errScheduleNotFound
@@ -294,44 +299,87 @@ func (h *ReplicationScheduleHandler) HandleRunReplicationScheduleNow(w http.Resp
 		return
 	}
 
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-
-	var target *ReplicationSchedule
-	for i := range schedules {
-		if schedules[i].ID == id {
-			target = &schedules[i]
-			break
-		}
-	}
-	if target == nil {
+	jobID, err := startReplicationSchedule(id)
+	switch {
+	case errors.Is(err, errScheduleNotFound):
 		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
-		return
+	case errors.Is(err, errScheduleRunning):
+		respondErrorSimple(w, "This schedule is already running", http.StatusConflict)
+	case err != nil:
+		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
+	default:
+		respondOK(w, map[string]any{"success": true, "job_id": jobID})
 	}
+}
 
-	sched := *target // copy for goroutine
-	jobID := launchReplicationJob(sched)
+var errScheduleRunning = errors.New("schedule already running")
 
-	// Atomically update only the status fields - does not overwrite concurrent CRUD changes.
+// startReplicationSchedule claims schedule id (marks it running) and then
+// launches its job. Claiming first matters: a job that fails at once writes
+// "failed", and a "running" written after the launch would overwrite it and
+// leave the schedule skipped for good.
+func startReplicationSchedule(id string) (string, error) {
 	now := time.Now()
+	var sched ReplicationSchedule
 	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
 		for i := range all {
-			if all[i].ID == id {
-				all[i].LastRun = &now
-				all[i].LastStatus = "running"
+			if all[i].ID != id {
+				continue
+			}
+			if all[i].LastStatus == "running" {
+				return nil, errScheduleRunning
+			}
+			all[i].LastRun = &now
+			all[i].LastStatus = "running"
+			all[i].LastJobID = ""
+			sched = all[i]
+			return all, nil
+		}
+		return nil, errScheduleNotFound
+	}); err != nil {
+		return "", err
+	}
+	jobID := launchReplicationJob(sched)
+	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for i := range all {
+			if all[i].ID == id && all[i].LastJobID == "" {
 				all[i].LastJobID = jobID
-				break
 			}
 		}
 		return all, nil
 	}); err != nil {
-		log.Printf("WARN: HandleRunReplicationScheduleNow: failed to persist running status for %s: %v", id, err)
+		log.Printf("WARN: replication schedule %s: failed to persist job ID: %v", id, err)
 	}
+	return jobID, nil
+}
 
-	respondOK(w, map[string]any{"success": true, "job_id": jobID})
+// TriggerReplicationSchedule runs one replication schedule after a snapshot
+// schedule that names it (trigger_replication). A schedule that is already
+// running is left alone.
+func TriggerReplicationSchedule(id string) {
+	jobID, err := startReplicationSchedule(id)
+	if err != nil {
+		log.Printf("INFO: replication schedule %s not triggered: %v", id, err)
+		return
+	}
+	log.Printf("INFO: replication schedule %s triggered by a snapshot schedule (job %s)", id, jobID)
+}
+
+// ResetInterruptedReplicationSchedules clears the "running" status that a job
+// stopped by a daemon restart left behind; until cleared the monitor would skip
+// the schedule forever. Call once at startup, before the monitor starts.
+func ResetInterruptedReplicationSchedules() {
+	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for i := range all {
+			if all[i].LastStatus == "running" {
+				log.Printf("WARN: replication schedule %s was running when the daemon stopped: marked interrupted", all[i].ID)
+				all[i].LastStatus = "interrupted"
+			}
+		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: replication schedules: cannot reset interrupted runs: %v", err)
+	}
 }
 
 // launchReplicationJob starts an async replication job and returns the job ID.
@@ -394,22 +442,20 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		}
 		conn.Close()
 
-		// Step 4: Find the newest snapshot for the source dataset
-		snapOutput, snapErr := executeCommandWithTimeout(TimeoutFast, "sched_zfs_list_snapshots",
-			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", s.SourceDataset})
+		// Step 4: Find the newest snapshot of the source dataset itself (-d 1:
+		// with -r the newest snapshot of a child could be picked instead).
+		localSnaps, snapErr := listLocalSnapshots(s.SourceDataset)
 		if snapErr != nil {
 			j.Fail(fmt.Sprintf("Failed to list snapshots for %s: %v", s.SourceDataset, snapErr))
 			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
-
-		lines := strings.Split(strings.TrimSpace(snapOutput), "\n")
-		if len(lines) == 0 || lines[0] == "" {
+		if len(localSnaps) == 0 {
 			j.Fail(fmt.Sprintf("No snapshots found for dataset %s - create a snapshot first", s.SourceDataset))
 			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
-		snapshot := strings.TrimSpace(lines[len(lines)-1])
+		snapshot := localSnaps[len(localSnaps)-1].name
 
 		remotePool := s.RemotePool
 		if remotePool == "" {
@@ -453,76 +499,75 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		parts := strings.Split(datasetName, "/")
 		remoteDataset := remotePool + "/" + parts[len(parts)-1]
 
-		// Step 6: Check for a resume token from an interrupted prior transfer
+		// Step 6: Finish a transfer that was interrupted. The resumed stream may
+		// be an older snapshot; the regular send below brings the rest.
 		if s.Resume {
 			token := getResumeToken(sshArgs, sshTarget, remoteDataset)
 			if token != "" && isValidResumeToken(token) {
 				j.Log("Found resume token - resuming interrupted transfer...")
-				_, resumeErr := execPipedZFSSend(
-					j,
-					[]string{"send", "-V", "-t", token},
-					sshArgs, sshTarget,
-					[]string{"recv", "-s", "-F", remoteDataset},
-					nil,
-				)
-				if resumeErr != nil {
-					j.Log(fmt.Sprintf("Resume failed (%v) - falling through to full send", resumeErr))
+				if _, resumeErr := execPipedZFSSend(j, []string{"send", "-V", "-t", token},
+					sshArgs, sshTarget, backupRecvArgs(remoteDataset), nil); resumeErr != nil {
+					j.Log(fmt.Sprintf("Resume failed (%v) - continuing with a regular send", resumeErr))
 				} else {
-					j.Done(map[string]any{
-						"snapshot": snapshot,
-						"remote":   fmt.Sprintf("%s:%s", sshTarget, remoteDataset),
-						"peer":     remote.Name,
-						"resumed":  true,
-					})
-					updateScheduleStatus(s.ID, "done", j.ID, snapshot)
-					return
+					j.Log("Interrupted transfer completed")
 				}
 			}
 		}
 
-		// Step 7: Build send args - incremental if a prior snapshot is recorded, otherwise full
+		// Step 7: Plan the send from what both sides hold. The incremental base
+		// is the newest local snapshot the remote has (same GUID, so a dataset
+		// of the same name but other origin never passes for it).
+		encrypted, encErr := datasetEncrypted(s.SourceDataset)
+		if encErr != nil {
+			j.Fail(fmt.Sprintf("Cannot read the encryption of %s: %v", s.SourceDataset, encErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+		remoteSnaps, remoteExists, rErr := listRemoteSnapshots(sshArgs, sshTarget, remoteDataset)
+		if rErr != nil {
+			j.Fail(fmt.Sprintf("Cannot list the snapshots of %s on %s: %v", remoteDataset, remote.Name, rErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+		plan, planErr := planReplication(localSnaps, remoteSnaps, remoteExists, s.AllowFromScratch)
+		if planErr != nil {
+			j.Fail(fmt.Sprintf("%s -> %s:%s: %v", s.SourceDataset, remote.Name, remoteDataset, planErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+		if plan.upToDate {
+			j.Log(fmt.Sprintf("%s already holds %s - nothing to send", remoteDataset, snapshot))
+			j.Done(map[string]any{"snapshot": snapshot, "remote": fmt.Sprintf("%s:%s", sshTarget, remoteDataset), "peer": remote.Name})
+			updateScheduleStatus(s.ID, "done", j.ID, snapshot)
+			return
+		}
+		if plan.destroyRemote {
+			j.Log(fmt.Sprintf("WARN: no common snapshot with %s; replication from scratch is allowed: destroying it", remoteDataset))
+			destroyArgs := append(append([]string{}, sshArgs...), sshTarget, "zfs", "destroy", "-r", remoteDataset)
+			if out, err := executeCommandWithTimeout(TimeoutSlow, "ssh", destroyArgs); err != nil {
+				j.Fail(fmt.Sprintf("Cannot destroy %s on %s for the full send: %v: %s", remoteDataset, remote.Name, err, out))
+				updateScheduleStatus(s.ID, "failed", j.ID, "")
+				return
+			}
+		}
+
 		sendArgs := []string{"send", "-P"}
+		if encrypted {
+			// An encrypted dataset can only be sent with its properties raw:
+			// the backup holds the ciphertext and needs no key.
+			sendArgs = append(sendArgs, "-w")
+		} else if s.Compress {
+			sendArgs = append(sendArgs, "-c")
+		}
 		if !s.NonRecursive {
 			sendArgs = append(sendArgs, "-R")
 		}
-		if s.Compress {
-			sendArgs = append(sendArgs, "-c")
-		}
-
-		useIncremental := false
-		if s.Incremental && s.LastReplicatedSnapshot != "" && isValidSnapshotName(s.LastReplicatedSnapshot) {
-			// Verify the base snapshot still exists locally.
-			_, localCheckErr := executeCommandWithTimeout(TimeoutFast, "sched_zfs_snapshot_exists",
-				[]string{"list", "-t", "snapshot", "-H", "-o", "name", s.LastReplicatedSnapshot})
-			if localCheckErr != nil {
-				j.Log(fmt.Sprintf("WARN: local incremental base %q no longer exists - falling back to full send", s.LastReplicatedSnapshot))
-			} else {
-				// Remote chain validation: verify the base snapshot also exists on the remote.
-				// If it was deleted there (e.g. remote rollback, manual pruning) an incremental
-				// send would fail mid-stream and leave the remote dataset in an inconsistent state.
-				baseSnapName := strings.SplitN(s.LastReplicatedSnapshot, "@", 2)
-				remoteBase := ""
-				if len(baseSnapName) == 2 {
-					remoteBase = remoteDataset + "@" + baseSnapName[1]
-				}
-				remoteListArgs := append([]string{}, sshArgs...)
-				remoteListArgs = append(remoteListArgs, sshTarget,
-					"zfs", "list", "-H", "-t", "snapshot", "-o", "name", remoteBase)
-				_, remoteCheckErr := executeCommandWithTimeout(TimeoutMedium, "ssh", remoteListArgs)
-				if remoteCheckErr != nil {
-					j.Log(fmt.Sprintf("WARN: incremental base %q not found on remote - falling back to full send (remote chain broken)", remoteBase))
-				} else {
-					useIncremental = true
-					sendArgs = append(sendArgs, "-i", s.LastReplicatedSnapshot)
-					j.Log(fmt.Sprintf("Incremental send: base=%s -> %s", s.LastReplicatedSnapshot, snapshot))
-				}
-			}
-		} else if s.Incremental {
-			j.Log("Incremental requested but no prior snapshot recorded - sending full stream")
-		}
-
-		if !useIncremental && s.Incremental {
-			j.Log("Sending full stream (incremental base unavailable)")
+		if plan.base != "" {
+			// -I: the intermediate snapshots go along, so the backup keeps them.
+			sendArgs = append(sendArgs, "-I", plan.base)
+			j.Log(fmt.Sprintf("Incremental send: base=%s -> %s", plan.base, snapshot))
+		} else {
+			j.Log(fmt.Sprintf("Full send of %s (%s holds no snapshots yet)", snapshot, remoteDataset))
 		}
 		sendArgs = append(sendArgs, snapshot)
 
@@ -542,12 +587,24 @@ func launchReplicationJob(s ReplicationSchedule) string {
 				backoff := time.Duration(attempt*attempt) * 30 * time.Second
 				j.Log(fmt.Sprintf("Retry %d/%d in %v...", attempt, maxRetries, backoff))
 				time.Sleep(backoff)
+				// The interrupted receive (-s) left partial state that blocks a
+				// new stream into the dataset: continue it from its token.
+				if token := getResumeToken(sshArgs, sshTarget, remoteDataset); token != "" && isValidResumeToken(token) {
+					j.Log("Resuming the interrupted stream")
+					_, execErr = execPipedZFSSend(j, []string{"send", "-V", "-t", token},
+						sshArgs, sshTarget, backupRecvArgs(remoteDataset), rateLimit)
+					if execErr == nil {
+						break
+					}
+					j.Log(fmt.Sprintf("Attempt %d failed: %v", attempt+1, execErr))
+					continue
+				}
 			}
 			_, execErr = execPipedZFSSend(
 				j,
 				sendArgs,
 				sshArgs, sshTarget,
-				[]string{"recv", "-s", "-F", remoteDataset},
+				backupRecvArgs(remoteDataset),
 				rateLimit,
 			)
 			if execErr == nil {
@@ -592,9 +649,13 @@ func launchReplicationJob(s ReplicationSchedule) string {
 // updateScheduleStatus persists last status, job ID, and (on success) the replicated snapshot name.
 func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
 	now := time.Now()
+	name := schedID
 	if err := atomicModifySchedules(func(schedules []ReplicationSchedule) ([]ReplicationSchedule, error) {
 		for i := range schedules {
 			if schedules[i].ID == schedID {
+				if schedules[i].Name != "" {
+					name = schedules[i].Name
+				}
 				schedules[i].LastRun = &now
 				schedules[i].LastStatus = status
 				schedules[i].LastJobID = jobID
@@ -610,13 +671,29 @@ func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
 		return
 	}
 
-	alertLevel := "info"
-	if status == "failed" {
-		alertLevel = "warning"
+	// Failures and the first success after one; every run alerted before
+	// (an hourly schedule sent 24 alerts a day).
+	replOutcomeMu.Lock()
+	prev := replOutcome[schedID]
+	if status == "failed" || status == "done" {
+		replOutcome[schedID] = status
 	}
-	DispatchAlert(alertLevel, "replication.schedule_updated", schedID,
-		fmt.Sprintf("Schedule %s status updated to %s", schedID, status))
+	replOutcomeMu.Unlock()
+	switch {
+	case status == "failed":
+		DispatchAlert("warning", "replication.failed", name,
+			fmt.Sprintf("Replication %s failed (job %s): the copy is not current. See the job log on the Replication page.", name, jobID))
+	case status == "done" && prev == "failed":
+		DispatchAlert("info", "replication.recovered", name, fmt.Sprintf("Replication %s works again.", name))
+	}
 }
+
+// replOutcome: the last finished status per schedule ("running" is written
+// in between, so the stored status cannot tell a recovery).
+var (
+	replOutcomeMu sync.Mutex
+	replOutcome   = map[string]string{}
+)
 
 // TriggerPostSnapshotReplication fires replication for all enabled schedules
 // that have TriggerOnSnapshot=true and match the given dataset.
@@ -766,4 +843,3 @@ func isReplicationDue(s ReplicationSchedule, t time.Time) bool {
 		return false
 	}
 }
-

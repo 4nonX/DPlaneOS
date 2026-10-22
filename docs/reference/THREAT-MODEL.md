@@ -266,7 +266,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 | HTTP API (~400 routes) | All routes require session except `/health`, `/api/auth/*`, and `/api/csrf` | Session middleware (global) + `must_change_password` gate | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design; OIDC endpoints in `/api/auth/oidc/*` are public by necessity |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict allowlist + libzfs direct API for ZFS dataset mutations** | Path-agnostic resolution via PATH; no shell; snapshot/clone/destroy go through cgo; pool import uses allowlist subprocess |
-| networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
+| networkdwriter file writes | `/etc/systemd/network/05-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
 | PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | One database per node; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
 | Client session token | `sessionStorage` (default) or `localStorage` (opt-in "Remember me") | 24-hour server-side TTL, revoked on password change | localStorage token survives browser restart; XSS with localStorage access is a higher-impact scenario than sessionStorage |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |

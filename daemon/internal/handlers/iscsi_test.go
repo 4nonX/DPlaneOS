@@ -1,11 +1,47 @@
 package handlers
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 const testIQN = "iqn.2026-10.lan.nas:lun0"
+
+// After a boot LIO is empty: the saved configuration is replayed, once.
+func TestRestoreISCSIConfig(t *testing.T) {
+	dir := t.TempDir()
+	prevSave, prevLIO := iscsiSaveFile, lioConfigDir
+	iscsiSaveFile, lioConfigDir = filepath.Join(dir, "saveconfig.json"), filepath.Join(dir, "configfs")
+	t.Cleanup(func() { iscsiSaveFile, lioConfigDir = prevSave, prevLIO })
+
+	// No saved configuration: nothing to do.
+	cmds := fakeCommands(t, nil)
+	RestoreISCSIConfig()
+	if cmds.ran("targetcli") {
+		t.Error("restore ran without a saved configuration")
+	}
+
+	real := `{"storage_objects":[{"dev":"/dev/zvol/tank/lun0","name":"lun0","plugin":"block"},{"name":"ram","plugin":"ramdisk"}],"targets":[]}`
+	if devs := savedBackingDevices([]byte(real)); len(devs) != 1 || devs[0] != "/dev/zvol/tank/lun0" {
+		t.Errorf("backing devices: %v", devs)
+	}
+	_ = os.WriteFile(iscsiSaveFile, []byte(`{"storage_objects":[],"targets":[]}`), 0600)
+	cmds = fakeCommands(t, nil)
+	RestoreISCSIConfig()
+	if !cmds.ran("targetcli", "/", "restoreconfig", iscsiSaveFile) {
+		t.Errorf("saved configuration not restored: %v", cmds.keys())
+	}
+
+	// The kernel already has targets (the daemon restarted): leave them.
+	_ = os.MkdirAll(filepath.Join(lioConfigDir, testIQN), 0755)
+	cmds = fakeCommands(t, nil)
+	RestoreISCSIConfig()
+	if cmds.ran("targetcli") {
+		t.Error("restore must not run when LIO already has targets")
+	}
+}
 
 func TestISCSIValidators(t *testing.T) {
 	if validateBackingDev("/dev/zvol/tank/lun0") != nil || validateBackingDev("/dev/zvol/tank/vols/db-01") != nil {
@@ -54,7 +90,7 @@ func TestCreateISCSITarget(t *testing.T) {
 	for _, want := range [][]string{
 		{"/iscsi", "create", testIQN},
 		{"/backstores/block", "create"},
-		{tpg + "/portals", "create", "0.0.0.0:3260"},
+		{tpg + "/portals", "create", "ip_address=0.0.0.0", "ip_port=3260"}, // address and port separately (lab: "0.0.0.0:3260" fails)
 		{tpg, "set", "attribute", "authentication=1"},
 		{tpg, "enable"},
 		{"/", "saveconfig"},

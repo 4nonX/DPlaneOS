@@ -7,7 +7,10 @@
 //	lifecycle management, a thin stdlib client is safer, faster to compile,
 //	and has zero supply-chain surface beyond the Go standard library.
 //
-// API version: v1.41 (Docker Engine 20.10+). All NAS-relevant distros ship 20.10+.
+// API version: negotiated with the daemon, as the docker CLI does: the lower
+// of clientMaxAPI and the daemon's version, never below the daemon's minimum.
+// A fixed version breaks with every engine that raises its minimum: Docker 29
+// (NixOS 26.05) refuses anything older than 1.44 with HTTP 400.
 package dockerclient
 
 import (
@@ -21,14 +24,90 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+// SocketPath is the Docker API socket (a test points it at a fake API).
+var SocketPath = "/var/run/docker.sock"
+
 const (
-	socketPath = "/var/run/docker.sock"
-	apiVersion = "v1.41" // Docker Engine REST API version (Engine 20.10+)
+	// clientMaxAPI is the newest Engine API version this client is written
+	// against; the oldest it uses is 1.41 (Engine 20.10).
+	clientMaxAPI = "1.47"
 )
+
+var (
+	negotiateMu sync.Mutex
+	negotiated  string // "v1.47"; empty until the daemon answered once
+)
+
+// apiPrefix returns the "/vX.YY" path prefix to use with this daemon.
+func (c *Client) apiPrefix(ctx context.Context) string {
+	negotiateMu.Lock()
+	defer negotiateMu.Unlock()
+	if negotiated != "" {
+		return negotiated
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/version", nil)
+	if err != nil {
+		return "v" + clientMaxAPI
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "v" + clientMaxAPI // daemon unreachable: the call fails anyway; ask again next time
+	}
+	var v struct {
+		APIVersion    string `json:"ApiVersion"`
+		MinAPIVersion string `json:"MinAPIVersion"`
+	}
+	if decodeJSON(resp, &v) != nil || v.APIVersion == "" {
+		return "v" + clientMaxAPI
+	}
+	negotiated = "v" + negotiateAPIVersion(clientMaxAPI, v.APIVersion, v.MinAPIVersion)
+	return negotiated
+}
+
+// negotiateAPIVersion picks min(clientMax, server), raised to serverMin.
+func negotiateAPIVersion(clientMax, server, serverMin string) string {
+	v := clientMax
+	if apiVersionLess(server, v) {
+		v = server
+	}
+	if serverMin != "" && apiVersionLess(v, serverMin) {
+		v = serverMin
+	}
+	return v
+}
+
+// apiVersionLess compares "1.41"-style versions numerically.
+func apiVersionLess(a, b string) bool {
+	pa, pb := strings.SplitN(a, ".", 2), strings.SplitN(b, ".", 2)
+	for i := 0; i < 2; i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// url builds a versioned API URL.
+func (c *Client) url(ctx context.Context, path string, query url.Values) string {
+	u := "http://docker/" + c.apiPrefix(ctx) + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	return u
+}
 
 // Client is a minimal Docker API client using the Unix socket.
 type Client struct {
@@ -39,7 +118,7 @@ type Client struct {
 func New() *Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+			return (&net.Dialer{}).DialContext(ctx, "unix", SocketPath)
 		},
 	}
 	return &Client{
@@ -55,11 +134,7 @@ func New() *Client {
 // ─────────────────────────────────────────────
 
 func (c *Client) get(ctx context.Context, path string, query url.Values) (*http.Response, error) {
-	u := "http://docker/" + apiVersion + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(ctx, path, query), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -67,15 +142,11 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) (*http.
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, query url.Values, body any) (*http.Response, error) {
-	u := "http://docker/" + apiVersion + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(ctx, path, query), bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -84,11 +155,7 @@ func (c *Client) postJSON(ctx context.Context, path string, query url.Values, bo
 }
 
 func (c *Client) post(ctx context.Context, path string, query url.Values) (*http.Response, error) {
-	u := "http://docker/" + apiVersion + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(ctx, path, query), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,10 +251,12 @@ type Mount struct {
 
 // ContainerDetail is the full inspect response from /containers/{id}/json.
 type ContainerDetail struct {
-	ID      string `json:"Id"`
-	Name    string `json:"Name"`
-	Created string `json:"Created"`
-	State   struct {
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Created      string `json:"Created"`
+	Image        string `json:"Image"` // the image ID it runs
+	RestartCount int    `json:"RestartCount"`
+	State        struct {
 		Status     string `json:"Status"`
 		Running    bool   `json:"Running"`
 		Paused     bool   `json:"Paused"`
@@ -397,8 +466,7 @@ func (c *Client) PullImage(ctx context.Context, image string) error {
 		Transport: c.http.Transport,
 		Timeout:   10 * time.Minute,
 	}
-	u := "http://docker/" + apiVersion + "/images/create?" + q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(ctx, "/images/create", q), nil)
 	if err != nil {
 		return fmt.Errorf("docker pull: %w", err)
 	}
@@ -411,8 +479,38 @@ func (c *Client) PullImage(ctx context.Context, image string) error {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("docker pull %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	io.Copy(io.Discard, resp.Body) // drain progress stream
-	return nil
+	return pullStreamError(resp.Body)
+}
+
+// pullStreamError reads a pull's progress stream to its end and returns the
+// error it reports. The status is 200 once the pull has started; a failure
+// after that (a layer that cannot be downloaded, a registry rate limit) only
+// appears in the stream as {"error": ...}. Ignored, a failed pull counted as
+// done and an update went on with the old image.
+func pullStreamError(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg struct {
+			Error       string `json:"error"`
+			ErrorDetail struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("docker pull: reading progress: %w", err)
+		}
+		if msg.Error != "" || msg.ErrorDetail.Message != "" {
+			m := msg.ErrorDetail.Message
+			if m == "" {
+				m = msg.Error
+			}
+			io.Copy(io.Discard, r) //nolint
+			return fmt.Errorf("docker pull: %s", m)
+		}
+	}
 }
 
 // ListImages returns all images on the system.
@@ -437,11 +535,7 @@ func (c *Client) RemoveImage(ctx context.Context, imageID string, force bool) er
 	if force {
 		q.Set("force", "1")
 	}
-	u := "http://docker/" + apiVersion + "/images/" + url.PathEscape(imageID)
-	if len(q) > 0 {
-		u += "?" + q.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(ctx, "/images/"+url.PathEscape(imageID), q), nil)
 	if err != nil {
 		return fmt.Errorf("docker rmi: %w", err)
 	}
@@ -483,10 +577,20 @@ func (c *Client) IsAvailable(ctx context.Context) bool {
 	return resp.StatusCode == 200
 }
 
+// StableFor is how long a container without a HEALTHCHECK must keep running
+// (same start, no restart) before WaitForHealthy counts it as up.
+var StableFor = 10 * time.Second
+
 // WaitForHealthy polls until the container is running and healthy.
-// Respects Docker HEALTHCHECK: if defined, waits for "healthy" not just "running".
+// Respects Docker HEALTHCHECK: if defined, waits for "healthy" not just
+// "running". Without one, the container must stay up for StableFor: one that
+// crashes a second after starting (and is restarted by its policy) is seen
+// running at first, and counting that as success let a broken update stand.
 func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Duration) (bool, error) {
 	deadline := time.Now().Add(timeout)
+	var upSince time.Time
+	var upStart string
+	upRestarts := -1
 	for time.Now().Before(deadline) {
 		detail, err := c.Inspect(ctx, id)
 		if err != nil {
@@ -497,7 +601,8 @@ func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Dur
 			}
 			continue
 		}
-		if !detail.State.Running {
+		if !detail.State.Running || detail.State.Restarting {
+			upSince = time.Time{}
 			select {
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
@@ -506,7 +611,19 @@ func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Dur
 			continue
 		}
 		if detail.State.Health == nil {
-			return true, nil // no HEALTHCHECK - running is sufficient
+			// No HEALTHCHECK: running continuously for StableFor.
+			if upSince.IsZero() || detail.State.StartedAt != upStart || detail.RestartCount != upRestarts {
+				upSince, upStart, upRestarts = time.Now(), detail.State.StartedAt, detail.RestartCount
+			}
+			if time.Since(upSince) >= StableFor {
+				return true, nil
+			}
+			select {
+			case <-time.After(time.Second):
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+			continue
 		}
 		switch detail.State.Health.Status {
 		case "healthy":
@@ -536,11 +653,7 @@ func (c *Client) Remove(ctx context.Context, id string, force bool, removeVolume
 	if removeVolumes {
 		q.Set("v", "1")
 	}
-	u := "http://docker/" + apiVersion + "/containers/" + url.PathEscape(id)
-	if len(q) > 0 {
-		u += "?" + q.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(ctx, "/containers/"+url.PathEscape(id), q), nil)
 	if err != nil {
 		return fmt.Errorf("docker remove: %w", err)
 	}

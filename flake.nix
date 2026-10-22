@@ -142,10 +142,48 @@
       '';
 
       # Shared inline config applied to all nixosConfigurations
+      # Where the system comes from (/etc/dplaneos-source.json; not under
+      # /etc/dplaneos, which is bind-mounted from /persist): the daemon writes
+      # /etc/nixos/flake.nix from it (rebuilds use the same release plus the
+      # machine's hardware configuration) and updates move it to a newer
+      # release. Without it a rebuild evaluated NixOS's stock
+      # /etc/nixos/configuration.nix.
+      # The installer's partitioning scripts, built with the ISO. disko's CLI
+      # evaluated the layout at install time with `import <nixpkgs>`, which
+      # the offline ISO does not have (and it would have built the script
+      # without substituters). The scripts partition the device
+      # /dev/dplaneos-install-target, which install.sh links to the chosen
+      # disk; one script per system partition size.
+      installerDisko = system: let
+        script = size: (nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            disko.nixosModules.disko
+            ./nixos/disko.nix
+            ({ lib, ... }: {
+              disko.devices.disk.os.device = lib.mkForce "/dev/dplaneos-install-target";
+              disko.devices.disk.os.content.partitions.system-a.size = lib.mkForce size;
+              system.stateVersion = "26.05";
+            })
+          ];
+        }).config.system.build.diskoScript;
+      in { "40G" = script "40G"; "24G" = script "24G"; };
+
+      sourceModule = configuration: live: {
+        environment.etc."dplaneos-source.json".text = builtins.toJSON {
+          flake = "github:4nonX/DPlaneOS";
+          rev = self.rev or null; # null when built from a tree with uncommitted changes
+          version = dplaneosVersion;
+          inherit configuration live;
+        };
+      };
+
       applianceConfig = { config, lib, pkgs, ... }: {
         boot.kernelPackages = pkgs.linuxPackages_6_12;
         boot.zfs.package = pkgs.zfs;
-        boot.kernelParams = [ "zfs.zfs_arc_max=17179869184" ];
+        # mkDefault: configuration-standalone.nix sets the same limit with its
+        # console options; both together put it on the command line twice.
+        boot.kernelParams = lib.mkDefault [ "zfs.zfs_arc_max=17179869184" ];
         assertions = [
           {
             assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "6.12";
@@ -194,6 +232,48 @@
         #   nix build .#checks.x86_64-linux.live-boot -L
         checks.live-boot = import ./nixos/tests/live-boot.nix {
           inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # Updates: the check after the reboot keeps a working update and goes
+        # back to the previous generation after a broken one.
+        #   nix build .#checks.x86_64-linux.update -L
+        checks.update = import ./nixos/tests/update.nix {
+          inherit nixpkgs system;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # The installer: unattended install onto an empty disk, then the
+        # installed disk boots (UEFI) and the admin logs in over HTTP.
+        #   nix build .#checks.x86_64-linux.installer -L
+        checks.installer = import ./nixos/tests/installer.nix {
+          inherit nixpkgs system;
+          targetSystem = self.nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel;
+          diskoScripts = installerDisko system;
+        };
+
+        # Active Directory: join a Samba AD DC through the API, AD users resolve.
+        #   nix build .#checks.x86_64-linux.ad-join -L
+        checks.ad-join = import ./nixos/tests/ad-join.nix {
+          inherit nixpkgs system;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # UPS: NUT events become alerts; low battery shuts the machine down.
+        #   nix build .#checks.x86_64-linux.ups -L
+        checks.ups = import ./nixos/tests/ups.nix {
+          inherit nixpkgs system;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # Configuration backup and restore through the API (daemon restart).
+        #   nix build .#checks.x86_64-linux.config-restore -L
+        checks.config-restore = import ./nixos/tests/config-restore.nix {
+          inherit nixpkgs system;
           daemonPackage = daemon;
           frontendPackage = frontend;
         };
@@ -304,6 +384,7 @@
           ./nixos/ota-module.nix
           ./nixos/dplane-generated.nix
           applianceConfig
+          (sourceModule "dplaneos" false)
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
            in {
@@ -327,6 +408,7 @@
           ./nixos/ota-module.nix
           ./nixos/dplane-generated.nix
           applianceConfig
+          (sourceModule "dplaneos-arm" false)
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
            in {
@@ -370,6 +452,7 @@
           ./nixos/ota-module.nix
           ./nixos/dplane-generated.nix
           applianceConfig
+          (sourceModule "dplaneos" false) # installs rebuild as dplaneos
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
            in {
@@ -402,6 +485,7 @@
         specialArgs = {
           inherit self;
           targetSystem = self.nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel;
+          diskoScripts = installerDisko system;
         };
         modules = [
           ./nixos/installer.nix
@@ -416,6 +500,7 @@
         specialArgs = {
           inherit self;
           targetSystem = self.nixosConfigurations.dplaneos-arm.config.system.build.toplevel;
+          diskoScripts = installerDisko system;
         };
         modules = [
           ./nixos/installer.nix
@@ -440,6 +525,7 @@
           ./nixos/configuration-live.nix
           impermanence.nixosModules.impermanence
           applianceConfig
+          (sourceModule "dplaneos-live" true)
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
            in {
@@ -460,6 +546,7 @@
           ./nixos/configuration-live.nix
           impermanence.nixosModules.impermanence
           applianceConfig
+          (sourceModule "dplaneos-live-arm" true)
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
            in {

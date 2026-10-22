@@ -11,31 +11,31 @@ import (
 
 // Config holds LDAP configuration
 type Config struct {
-	Enabled            bool     `json:"enabled"`
-	Server             string   `json:"server"`
-	Port               int      `json:"port"`
-	UseTLS             bool     `json:"use_tls"`
-	BindDN             string   `json:"bind_dn"`
-	BindPassword       string   `json:"bind_password"`
-	BaseDN             string   `json:"base_dn"`
-	UserFilter         string   `json:"user_filter"`
-	UserIDAttribute    string   `json:"user_id_attribute"`
-	UserNameAttribute  string   `json:"user_name_attribute"`
-	UserEmailAttribute string   `json:"user_email_attribute"`
-	GroupBaseDN        string   `json:"group_base_dn"`
-	GroupFilter        string   `json:"group_filter"`
-	GroupMemberAttr    string   `json:"group_member_attribute"`
+	Enabled            bool           `json:"enabled"`
+	Server             string         `json:"server"`
+	Port               int            `json:"port"`
+	UseTLS             bool           `json:"use_tls"`
+	BindDN             string         `json:"bind_dn"`
+	BindPassword       string         `json:"bind_password"`
+	BaseDN             string         `json:"base_dn"`
+	UserFilter         string         `json:"user_filter"`
+	UserIDAttribute    string         `json:"user_id_attribute"`
+	UserNameAttribute  string         `json:"user_name_attribute"`
+	UserEmailAttribute string         `json:"user_email_attribute"`
+	GroupBaseDN        string         `json:"group_base_dn"`
+	GroupFilter        string         `json:"group_filter"`
+	GroupMemberAttr    string         `json:"group_member_attribute"`
 	GroupMappings      []GroupMapping `json:"group_mappings"`
-	JITProvisioning    bool     `json:"jit_provisioning"`
-	DefaultRole        string   `json:"default_role"`
-	Timeout            int      `json:"timeout"`  // seconds
+	JITProvisioning    bool           `json:"jit_provisioning"`
+	DefaultRole        string         `json:"default_role"`
+	Timeout            int            `json:"timeout"` // seconds
 	// CacheTTL is how long directory user/group data is cached in memory.
 	// Background refresh runs at CacheTTL/2 so cache entries never expire
 	// during normal operation. When the directory is unreachable, the cache
 	// serves stale data for up to CacheTTL seconds.
 	// Default: 300 seconds (5 minutes). Mirrors TrueNAS DSCacheFill TTL.
-	CacheTTL           int      `json:"cache_ttl"` // seconds; 0 = use default (300)
-	SyncInterval       int      `json:"sync_interval"` // seconds between full syncs; 0 = 3600
+	CacheTTL     int `json:"cache_ttl"`     // seconds; 0 = use default (300)
+	SyncInterval int `json:"sync_interval"` // seconds between full syncs; 0 = 3600
 }
 
 // GroupMapping maps LDAP groups to DPlaneOS roles
@@ -50,12 +50,12 @@ type User struct {
 	// GroupsKnown: Groups was fetched successfully (an empty list then means
 	// no groups; after a failed fetch roles must not be changed).
 	GroupsKnown bool `json:"-"`
-	DN         string
-	Username   string
-	Email      string
-	FullName   string
-	Groups     []string
-	Attributes map[string][]string
+	DN          string
+	Username    string
+	Email       string
+	FullName    string
+	Groups      []string
+	Attributes  map[string][]string
 }
 
 // Client wraps LDAP connection
@@ -74,10 +74,10 @@ func NewClient(config *Config) (*Client, error) {
 // Connect establishes connection to LDAP server
 func (c *Client) Connect() error {
 	address := fmt.Sprintf("%s:%d", c.config.Server, c.config.Port)
-	
+
 	var conn *ldap.Conn
 	var err error
-	
+
 	if c.config.UseTLS {
 		tlsConfig := &tls.Config{
 			ServerName: c.config.Server,
@@ -87,16 +87,16 @@ func (c *Client) Connect() error {
 	} else {
 		conn, err = ldap.Dial("tcp", address)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to LDAP server: %w", err)
 	}
-	
+
 	// Set timeout
 	if c.config.Timeout > 0 {
 		conn.SetTimeout(time.Duration(c.config.Timeout) * time.Second)
 	}
-	
+
 	c.conn = conn
 	return nil
 }
@@ -113,12 +113,12 @@ func (c *Client) Bind() error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected to LDAP server")
 	}
-	
+
 	err := c.conn.Bind(c.config.BindDN, c.config.BindPassword)
 	if err != nil {
 		return fmt.Errorf("bind failed: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -129,42 +129,43 @@ func (c *Client) Authenticate(username, password string) (*User, error) {
 		return nil, err
 	}
 	defer c.Close()
-	
+
 	if err := c.Bind(); err != nil {
 		return nil, err
 	}
-	
+
 	// Search for user
 	user, err := c.searchUser(username)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Attempt to bind as the user to verify password
 	err = c.conn.Bind(user.DN, password)
 	if err != nil {
 		return nil, fmt.Errorf("authentication failed: invalid credentials")
 	}
-	
+
 	// Re-bind as service account to fetch groups
 	if err := c.Bind(); err != nil {
 		return nil, err
 	}
-	
+
 	// Fetch user groups
 	groups, err := c.getUserGroups(user.DN)
 	if err != nil {
 		return nil, err
 	}
 	user.Groups = groups
-	
+
 	return user, nil
 }
 
 // searchUser searches for a user by username
 func (c *Client) searchUser(username string) (*User, error) {
-	filter := strings.ReplaceAll(c.config.UserFilter, "{username}", username)
-	
+	// The username is escaped: "*" or ")(" in it changed the filter.
+	filter := strings.ReplaceAll(c.config.UserFilter, "{username}", ldap.EscapeFilter(username))
+
 	searchRequest := ldap.NewSearchRequest(
 		c.config.BaseDN,
 		ldap.ScopeWholeSubtree,
@@ -183,22 +184,22 @@ func (c *Client) searchUser(username string) (*User, error) {
 		},
 		nil,
 	)
-	
+
 	result, err := c.conn.Search(searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("user search failed: %w", err)
 	}
-	
+
 	if len(result.Entries) == 0 {
 		return nil, fmt.Errorf("user not found: %s", username)
 	}
-	
+
 	if len(result.Entries) > 1 {
 		return nil, fmt.Errorf("multiple users found for: %s", username)
 	}
-	
+
 	entry := result.Entries[0]
-	
+
 	user := &User{
 		DN:         entry.DN,
 		Username:   entry.GetAttributeValue(c.config.UserIDAttribute),
@@ -206,17 +207,17 @@ func (c *Client) searchUser(username string) (*User, error) {
 		FullName:   entry.GetAttributeValue("displayName"),
 		Attributes: make(map[string][]string),
 	}
-	
+
 	// If no display name, use cn
 	if user.FullName == "" {
 		user.FullName = entry.GetAttributeValue("cn")
 	}
-	
+
 	// If no username from attribute, use what was searched
 	if user.Username == "" {
 		user.Username = username
 	}
-	
+
 	return user, nil
 }
 
@@ -225,9 +226,9 @@ func (c *Client) getUserGroups(userDN string) ([]string, error) {
 	if c.config.GroupBaseDN == "" {
 		return []string{}, nil
 	}
-	
-	filter := strings.ReplaceAll(c.config.GroupFilter, "{user_dn}", userDN)
-	
+
+	filter := strings.ReplaceAll(c.config.GroupFilter, "{user_dn}", ldap.EscapeFilter(userDN))
+
 	searchRequest := ldap.NewSearchRequest(
 		c.config.GroupBaseDN,
 		ldap.ScopeWholeSubtree,
@@ -239,12 +240,12 @@ func (c *Client) getUserGroups(userDN string) ([]string, error) {
 		[]string{"cn", "distinguishedName"},
 		nil,
 	)
-	
+
 	result, err := c.conn.Search(searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("group search failed: %w", err)
 	}
-	
+
 	var groups []string
 	for _, entry := range result.Entries {
 		groupName := entry.GetAttributeValue("cn")
@@ -252,7 +253,7 @@ func (c *Client) getUserGroups(userDN string) ([]string, error) {
 			groups = append(groups, groupName)
 		}
 	}
-	
+
 	return groups, nil
 }
 
@@ -262,11 +263,11 @@ func (c *Client) TestConnection() error {
 		return err
 	}
 	defer c.Close()
-	
+
 	if err := c.Bind(); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -274,7 +275,7 @@ func (c *Client) TestConnection() error {
 func (c *Client) MapGroupsToRoles(groups []string) []int {
 	var roleIDs []int
 	roleMap := make(map[int]bool) // Deduplicate
-	
+
 	for _, group := range groups {
 		for _, mapping := range c.config.GroupMappings {
 			if strings.EqualFold(group, mapping.LDAPGroup) {
@@ -285,7 +286,7 @@ func (c *Client) MapGroupsToRoles(groups []string) []int {
 			}
 		}
 	}
-	
+
 	return roleIDs
 }
 
@@ -403,35 +404,35 @@ func ValidateConfig(config *Config) error {
 	if !config.Enabled {
 		return nil
 	}
-	
+
 	if config.Server == "" {
 		return fmt.Errorf("LDAP server is required")
 	}
-	
+
 	if config.Port <= 0 || config.Port > 65535 {
 		return fmt.Errorf("invalid port number")
 	}
-	
+
 	if config.BindDN == "" {
 		return fmt.Errorf("bind DN is required")
 	}
-	
+
 	if config.BindPassword == "" {
 		return fmt.Errorf("bind password is required")
 	}
-	
+
 	if config.BaseDN == "" {
 		return fmt.Errorf("base DN is required")
 	}
-	
+
 	if config.UserFilter == "" {
 		return fmt.Errorf("user filter is required")
 	}
-	
+
 	if !strings.Contains(config.UserFilter, "{username}") {
 		return fmt.Errorf("user filter must contain {username} placeholder")
 	}
-	
+
 	return nil
 }
 
@@ -517,3 +518,15 @@ func (c *Client) SyncAll() (*SyncResult, []*User, error) {
 	return res, users, nil
 }
 
+// LookupUser finds a user and its groups. The client must be connected and
+// bound (service account).
+func (c *Client) LookupUser(username string) (*User, error) {
+	u, err := c.searchUser(username)
+	if err != nil {
+		return nil, err
+	}
+	if groups, err := c.getUserGroups(u.DN); err == nil {
+		u.Groups, u.GroupsKnown = groups, true
+	}
+	return u, nil
+}

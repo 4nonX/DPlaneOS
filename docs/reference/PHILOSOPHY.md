@@ -87,7 +87,7 @@ Data on ZFS pools is the most valuable thing the system holds. The architecture 
 
 **Execution is transactional.** The GitOps apply engine halts on the first failure. Already-applied items are safe by design (ZFS operations are idempotent). A partially-applied plan leaves the system in a known state, not an unknown one.
 
-**Destructive changes require explicit approval.** The diff engine classifies operations as `BLOCKED` when they are potentially destructive (deleting a dataset, removing a disk from a pool). BLOCKED items do not execute without explicit operator approval, even when `state.yaml` says to do it.
+**Destructive changes require explicit approval, and data is never destroyed.** The diff engine classifies operations as `BLOCKED` when they are potentially destructive (deleting a dataset, removing a pool, removing a share with connected clients). BLOCKED items do not execute without explicit operator approval, even when `state.yaml` says to do it. A dataset or pool that holds anything is not destroyed even when approved: Git holds the shape of the storage, never its data.
 
 ---
 

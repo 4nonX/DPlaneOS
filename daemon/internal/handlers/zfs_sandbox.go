@@ -20,7 +20,7 @@ func NewZFSSandboxHandler() *ZFSSandboxHandler {
 // SandboxInfo represents an active sandbox
 type SandboxInfo struct {
 	Name       string `json:"name"`
-	Origin     string `json:"origin"`     // parent snapshot
+	Origin     string `json:"origin"` // parent snapshot
 	Mountpoint string `json:"mountpoint"`
 	Used       string `json:"used"`
 	Creation   string `json:"creation"`
@@ -110,15 +110,17 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 // ListSandboxes lists all active sandboxes (ZFS clones under pool/sandboxes/)
 // GET /api/sandbox/list
 func (h *ZFSSandboxHandler) ListSandboxes(w http.ResponseWriter, r *http.Request) {
+	// -d 2: the sandboxes are <pool>/sandboxes/<name>; with -d 1 (and no
+	// dataset) the list reached only <pool>/sandboxes and was always empty.
 	output, err := executeCommand("zfs", []string{
 		"list", "-t", "filesystem", "-H",
 		"-o", "name,origin,used,mountpoint,creation",
-		"-r", "-d", "1",
+		"-r", "-d", "2",
 	})
 	if err != nil {
 		respondOK(w, map[string]any{
-			"success":    true,
-			"sandboxes":  []any{},
+			"success":   true,
+			"sandboxes": []any{},
 		})
 		return
 	}
@@ -202,26 +204,52 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	}
 
 	respondOK(w, map[string]any{
-		"success":          true,
-		"destroyed":        req.Sandbox,
-		"origin_cleaned":   cleanedUp,
+		"success":        true,
+		"destroyed":      req.Sandbox,
+		"origin_cleaned": cleanedUp,
 	})
 }
 
-// CleanOrphanVolumes removes orphaned Docker volumes left by sandboxes
+// CleanOrphanVolumes removes what sandboxes leave behind: base snapshots
+// (<dataset>@sandbox-base-*) whose clone is gone, e.g. destroyed by hand.
+// (It ran a system-wide `docker volume prune` before, which has nothing to
+// do with sandboxes - they are ZFS clones - and was not routed.)
 // POST /api/sandbox/cleanup
 func (h *ZFSSandboxHandler) CleanOrphanVolumes(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("docker", []string{"volume", "prune", "-f"})
+	output, err := executeCommand("zfs", []string{"list", "-H", "-t", "snapshot", "-o", "name,clones"})
 	if err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Cleanup failed: %v", err),
-		})
+		respondOK(w, map[string]any{"success": false, "error": fmt.Sprintf("Cleanup failed: %v", err)})
 		return
 	}
+	var removed, failed []string
+	for _, name := range orphanSandboxBases(output) {
+		if err := libzfs.SnapshotDestroy(name); err != nil {
+			failed = append(failed, name+": "+err.Error())
+		} else {
+			removed = append(removed, name)
+		}
+	}
+	msg := fmt.Sprintf("%d leftover sandbox snapshot(s) removed", len(removed))
 	respondOK(w, map[string]any{
-		"success": true,
-		"output":  strings.TrimSpace(output),
+		"success": len(failed) == 0,
+		"removed": removed,
+		"output":  strings.TrimSpace(msg + "\n" + strings.Join(failed, "\n")),
 	})
 }
 
+// orphanSandboxBases picks the sandbox base snapshots without a clone from
+// `zfs list -H -t snapshot -o name,clones` output.
+func orphanSandboxBases(out string) []string {
+	var names []string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) != 2 {
+			continue
+		}
+		_, snap, ok := strings.Cut(f[0], "@")
+		if ok && strings.HasPrefix(snap, "sandbox-base-") && (f[1] == "" || f[1] == "-") {
+			names = append(names, f[0])
+		}
+	}
+	return names
+}

@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -218,9 +219,9 @@ func TestValidState_BadAshift(t *testing.T) {
 		Version: "1",
 		Pools: []DesiredPool{
 			{
-				Name:   "tank",
+				Name:     "tank",
 				Topology: SimpleMirrorTopology("/dev/disk/by-id/a", "/dev/disk/by-id/b"),
-				Ashift: 17, // out of range [9,16]
+				Ashift:   17, // out of range [9,16]
 			},
 		},
 	}
@@ -414,17 +415,45 @@ func TestBlockedContract_humanReadableReason(t *testing.T) {
 func TestBlockedContract_EmptyDatasetIsSafeDelete(t *testing.T) {
 	// Mock DatasetUsedBytes to return 0, simulating an empty dataset
 	// without needing a live ZFS binary.
-	old := GetDatasetUsedBytes
-	defer func() { GetDatasetUsedBytes = old }()
-	GetDatasetUsedBytes = func(name string) (uint64, error) {
-		return 0, nil
+	old := DatasetEmpty
+	defer func() { DatasetEmpty = old }()
+	DatasetEmpty = func(name string) (bool, string, error) {
+		return true, "", nil
 	}
 
-	ld := LiveDataset{Name: "tank/empty", Used: 0}
+	ld := LiveDataset{Name: "tank/empty", Used: 98304} // what ZFS reports for an empty filesystem
 	item := blockedCheckDataset(ld, nil)
 	if item.Action != ActionDelete {
-		t.Errorf("empty dataset (Used=0) should be DELETE, got %s (reason: %s)",
+		t.Errorf("empty dataset should be DELETE, got %s (reason: %s)",
 			item.Action, item.BlockReason)
+	}
+}
+
+// A dataset that holds anything is BLOCKED, and even an approved delete of it
+// is refused at execute time: Git never holds disk data, so GitOps never
+// destroys it.
+func TestBlockedContract_DataNeverDestroyed(t *testing.T) {
+	old := DatasetEmpty
+	defer func() { DatasetEmpty = old }()
+	DatasetEmpty = func(name string) (bool, string, error) {
+		return false, "holds 3 file(s) or folder(s) in /tank/data", nil
+	}
+	item := blockedCheckDataset(LiveDataset{Name: "tank/data"}, nil)
+	if item.Action != ActionBlocked || !strings.Contains(item.BlockReason, "never its data") {
+		t.Errorf("dataset with data: %s %q", item.Action, item.BlockReason)
+	}
+	if err := deleteDataset("tank/data"); err == nil || strings.Contains(err.Error(), "report this as a bug") {
+		t.Errorf("approved delete of a dataset with data: %v", err)
+	}
+	if err := destroyPool("tank"); err == nil {
+		t.Error("approved destroy of a pool with data must be refused")
+	}
+
+	DatasetEmpty = func(name string) (bool, string, error) {
+		return false, "", fmt.Errorf("not mounted")
+	}
+	if item := blockedCheckDataset(LiveDataset{Name: "tank/locked"}, nil); item.Action != ActionBlocked {
+		t.Errorf("unverifiable dataset must be BLOCKED, got %s", item.Action)
 	}
 }
 
@@ -434,7 +463,7 @@ func TestBlockedContract_EmptyDatasetIsSafeDelete(t *testing.T) {
 
 func TestParseQuota(t *testing.T) {
 	cases := []struct {
-		input    string
+		input      string
 		wantApprox uint64
 	}{
 		{"none", 0},
@@ -522,7 +551,7 @@ func TestZpoolCreateFullArgs_Mirror(t *testing.T) {
 				{Type: "mirror", Disks: []string{"/dev/disk/by-id/a", "/dev/disk/by-id/b"}},
 			},
 		},
-		Ashift: 12,
+		Ashift:  12,
 		Options: map[string]string{"compression": "lz4"},
 	}
 	args, err := ZpoolCreateFullArgs(dp, true)
@@ -577,7 +606,7 @@ func TestComputeDiff_SharePathValidation(t *testing.T) {
 	live := &LiveState{}
 
 	plan := ComputeDiff(desired, live)
-	
+
 	// 'valid' should be CREATE
 	// 'invalid' should be BLOCKED
 	validFound, invalidFound := false, false
@@ -594,7 +623,10 @@ func TestComputeDiff_SharePathValidation(t *testing.T) {
 			}
 		}
 	}
-	if !validFound { t.Error("valid share should be CREATE") }
-	if !invalidFound { t.Error("invalid share should be BLOCKED") }
+	if !validFound {
+		t.Error("valid share should be CREATE")
+	}
+	if !invalidFound {
+		t.Error("invalid share should be BLOCKED")
+	}
 }
-

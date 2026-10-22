@@ -96,7 +96,7 @@ func LoadOptions(db *sql.DB) Options {
 	var apple int
 	var extra string
 	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&apple) //nolint:errcheck
-	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extra) //nolint:errcheck
+	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extra)  //nolint:errcheck
 	return Options{NixOSManaged: IsNixOS(), AppleExtensions: apple == 1, ExtraGlobal: extra}
 }
 
@@ -115,6 +115,16 @@ func AppleEnabled(o Options, shares []Share) bool {
 	}
 	for _, s := range shares {
 		if s.TimeMachine {
+			return true
+		}
+	}
+	return false
+}
+
+// GuestShares reports whether a share allows guest access.
+func GuestShares(shares []Share) bool {
+	for _, s := range shares {
+		if s.GuestOK {
 			return true
 		}
 	}
@@ -140,6 +150,12 @@ func Render(o Options, shares []Share) string {
 	if o.NixOSManaged {
 		b.WriteString("# Managed by dplaned: share stanzas only. [global] is owned by NixOS\n")
 		b.WriteString("# (modules/samba.nix), which includes this file.\n\n")
+		// Still in [global] here (the include line is in it): settings that
+		// follow from the shares; modules/samba.nix leaves them unset.
+		if GuestShares(shares) {
+			b.WriteString("# A share allows guests: unknown users are mapped to the guest account.\n")
+			b.WriteString("   map to guest = Bad User\n\n")
+		}
 	} else {
 		b.WriteString("[global]\n")
 		b.WriteString("   workgroup = WORKGROUP\n")
@@ -235,11 +251,20 @@ func renderShare(b *strings.Builder, s Share, apple bool) {
 		}
 	}
 	if s.ShadowCopy {
+		// Scheduled and manual snapshots are named <prefix>-YYYYMMDD-HHMM in
+		// local time (auto-hourly-..., or a schedule's own prefix).
+		// vfs_shadow_copy2 splits the name at shadow:delimiter, matches the part
+		// before it against snapprefix (a POSIX basic regex) and parses the
+		// rest, delimiter included, with shadow:format. "-20" is the start of
+		// the year. snapdirseverywhere finds the .zfs/snapshot of a child
+		// dataset inside the share (its files had no previous versions).
 		b.WriteString("   shadow:snapdir = .zfs/snapshot\n")
+		b.WriteString("   shadow:snapdirseverywhere = yes\n")
 		b.WriteString("   shadow:sort = desc\n")
-		// Strip the frequency prefix (e.g. "auto-daily-") then parse the date.
-		b.WriteString("   shadow:snapprefix = ^auto-[a-z]+-\n")
-		b.WriteString("   shadow:format = %Y%m%d-%H%M\n")
+		b.WriteString(`   shadow:snapprefix = ^[A-Za-z0-9]` + "\n")
+		b.WriteString("   shadow:delimiter = -20\n")
+		b.WriteString("   shadow:format = -%Y%m%d-%H%M\n")
+		b.WriteString("   shadow:localtime = yes\n")
 	}
 	if s.RecycleBin {
 		b.WriteString("   recycle:repository = .recycle/%U\n")

@@ -87,6 +87,22 @@ func UpsertDisk(db *sql.DB, disk DiskInfo) error {
 	return err
 }
 
+// lastKnownPool returns the pool the disk with this by-id path was last seen
+// in, or "" when the registry never saw it in a pool.
+func lastKnownPool(db *sql.DB, byID string) string {
+	var pool string
+	err := db.QueryRow(`
+		SELECT pool_name FROM disk_registry
+		WHERE by_id_path = $1 AND pool_name <> ''
+		ORDER BY last_seen DESC
+		LIMIT 1
+	`, byID).Scan(&pool)
+	if err != nil {
+		return ""
+	}
+	return pool
+}
+
 // GetDiskBySerial returns the most-recently-seen disk record with the given
 // serial number, or nil if not found.
 func GetDiskBySerial(db *sql.DB, serial string) (*DiskRecord, error) {
@@ -212,4 +228,3 @@ func scanDiskRecordFromRows(rows *sql.Rows) (*DiskRecord, error) {
 	}
 	return &rec, nil
 }
-

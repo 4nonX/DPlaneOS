@@ -13,7 +13,7 @@ For the persistence model (what survives reboots vs. what is ephemeral), see [AR
 | User files | ZFS pools on data disks | ZFS snapshots + ZFS Send/Receive |
 | NAS configuration (runtime) | `state.yaml` in Git | Git push to remote |
 | NAS configuration (OS-level) | `configuration.nix` / `flake.nix` | Git push to remote |
-| Database (users, roles, audit) | `/var/lib/dplaneos/pgsql/` | `pg_dump` or ZFS snapshot of the dataset |
+| NAS configuration (database and settings files) | `/var/lib/dplaneos`, `/etc/dplaneos`, `/etc/target` | Configuration backup (Settings → Maintenance); a daily copy is written to the first pool |
 | Docker container state | `/var/lib/docker/` | ZFS snapshot (if on a ZFS dataset) or container volume backup |
 | TLS certificates | `/etc/dplaneos/ssl/` (persisted) | Included in ZFS snapshot of `/persist` |
 
@@ -42,30 +42,17 @@ ls /mnt/data/.zfs/snapshot/backup-20260509/myfile.txt
 cp /mnt/data/.zfs/snapshot/backup-20260509/myfile.txt /mnt/data/myfile.txt
 ```
 
-### Automatic Snapshots via NixOS
-
-```nix
-# In configuration.nix or nixos/module.nix
-services.zfs.autoSnapshot = {
-  enable = true;
-  frequent = 4;   # every 15 minutes, keep 4
-  hourly   = 24;  # keep 24 hourly
-  daily    = 7;   # keep 7 daily
-  weekly   = 4;   # keep 4 weekly
-  monthly  = 12;  # keep 12 monthly
-};
-```
-
-Snapshots created by `autoSnapshot` follow the naming convention `zfs-auto-snap_<freq>-<timestamp>` and are taken for all datasets with the `com.sun:auto-snapshot` property set to `true` (set by default on pool creation).
-
-Opt a dataset out of automatic snapshots:
-```bash
-zfs set com.sun:auto-snapshot=false tank/scratch
-```
-
 ### Scheduled Snapshots via the UI
 
-Data Protection → Snapshot Scheduler. Set a per-dataset schedule (hourly/daily/weekly/monthly), retention count, and whether to include child datasets.
+Data Protection → Snapshot Scheduler. Set a per-dataset schedule (every 15 minutes, hourly, daily, weekly or monthly), whether to include child datasets (one atomic `zfs snapshot -r` of the whole tree), and retention: a count, and optionally a maximum age in days. After each snapshot the schedule prunes its own older snapshots beyond the count or older than the age; the newest one and replication bases always stay.
+
+Each frequency gets its own prefix by default (`auto-frequent-`, `auto-hourly-`, `auto-daily-`, ...), and two schedules of one dataset may not share a prefix: otherwise one schedule's pruning would remove the other's snapshots. Snapshots with the default prefixes appear in Windows Explorer as Previous Versions on shares with that option enabled. "Run now" takes a snapshot with the schedule's prefix.
+
+A schedule can also start a replication schedule after each snapshot ("Trigger Replication after each snapshot").
+
+### Automatic Snapshots via NixOS (optional, not set up by DPlaneOS)
+
+NixOS's own `services.zfs.autoSnapshot` (zfs-auto-snapshot) also works, but DPlaneOS neither enables it nor sets the `com.sun:auto-snapshot` property it relies on. Its snapshots (`zfs-auto-snap_<freq>-<timestamp>`) are not pruned by DPlaneOS retention unless a policy names that prefix, and do not appear as Previous Versions. The UI scheduler above is the supported way.
 
 These schedules are stored in `/etc/dplaneos/snapshot-schedules.json` and survive reboots (the `/etc/dplaneos/` directory is bind-mounted from `/persist`). SMART task schedules are separate and can be declared in `state.yaml` under `smart_tasks`.
 
@@ -122,11 +109,15 @@ For air-gapped or high-security hosts where password auth is disabled: copy the 
 | Remote pool | Destination pool/dataset on the remote (default: mirrors source name) |
 | Interval | Hourly, Daily, Weekly, or Manual only |
 | Trigger after snapshot | Run immediately after each automatic snapshot in addition to the interval |
-| Incremental | Send only changes since the last replicated snapshot (tracked automatically) |
 | Resume | Check for an interrupted transfer token before sending |
 | Recursive | Include child datasets in the send stream (`-R`). Checked by default. Uncheck to send only the exact dataset. |
-| Compress | Enable lz4 stream compression |
+| Compress | Enable lz4 stream compression (encrypted datasets are always sent raw instead) |
 | Rate limit MB/s | Bandwidth cap via `pv` (0 = unlimited; requires `pv` installed on the source) |
+| Replicate from scratch | Off by default. When the peer's copy shares no snapshot with the source, destroy it and send everything again. Off, such a run fails with an explanation and leaves the peer's copy alone. |
+
+**What a run sends.** Each run compares the snapshots of the source with those of the copy on the peer, by GUID (a snapshot of the same name from another dataset never counts), and sends everything from the newest snapshot both sides share up to the newest local one, intermediate snapshots included (`zfs send -I`). A peer that does not have the dataset yet gets a full copy.
+
+**How the copy is kept.** The peer receives with `zfs recv -s -u -x mountpoint -o readonly=on`: resumable, never mounted over a path of the backup host (it inherits a mountpoint below its parent there), and read-only, so nothing changes it between runs. There is no `-F`: the copy keeps the snapshots the source has since pruned, so the backup can hold a longer history than the source. Encrypted datasets are sent raw (`-w`): the peer stores the ciphertext and never needs the key. A restore (Replication › Restore) receives with `-x readonly -x mountpoint`, so the restored dataset is writable and mounts where it lands.
 
 The background monitor fires due schedules every 5 minutes. Click **Run Now** on any schedule to trigger an immediate run regardless of interval.
 
@@ -152,27 +143,27 @@ peer of that name exists.
 
 `trigger_on_snapshot: true` means replication runs immediately after each automatic snapshot, rather than only on the configured interval.
 
-**Reliability features (v14.0.0):** Transient failures trigger automatic retry with exponential backoff (up to 3 attempts: immediate, +30 seconds, +120 seconds). Two schedules targeting the same source dataset and remote destination cannot run concurrently - the second is skipped with a "conflict" status to prevent ZFS stream corruption. Before each incremental send, the daemon verifies the base snapshot exists on the remote; if the chain is broken, it falls back to a full send with a log message. After every `zfs recv`, the daemon verifies the expected snapshot exists on the destination and fails the job explicitly if absent.
+**Reliability features:** Transient failures trigger automatic retry with exponential backoff (up to 3 attempts: immediate, +30 seconds, +120 seconds); a retry continues an interrupted stream from its resume token. Two schedules targeting the same source dataset and remote destination cannot run concurrently - the second is skipped with a "conflict" status to prevent ZFS stream corruption. Without a common snapshot a run stops with an explanation instead of falling back to a full send (see "Replicate from scratch"). A failing `zfs send` is reported with its own error message. After every `zfs recv`, the daemon verifies the expected snapshot exists on the destination and fails the job explicitly if absent. A run the daemon was in the middle of when it stopped is marked "interrupted" at the next start, and the schedule runs again normally.
 
 ---
 
 ## Snapshot Retention Policies
 
-DPlaneOS automatically prunes old local snapshots based on per-bucket retention counts. Only snapshots matching the configured prefix are pruned; manually created snapshots are never touched. Retention runs after each replication cycle so local pruning happens after remote copies are confirmed current.
+DPlaneOS prunes old local snapshots by time bucket. Only snapshots matching the configured prefix are pruned (the prefix is required), so manually created snapshots are never touched; nor is the snapshot a replication schedule uses as its incremental base. Policies are applied every 5 minutes, after the replication monitor. The copies on replication peers keep their snapshots (see above).
 
 **Configure via UI:** Data Protection -> Replication -> Retention tab -> Add Policy
 
 | Field | Description |
 |-------|-------------|
-| Dataset | Dataset to prune (e.g. `tank/data`) |
-| Prefix | Snapshot name prefix to match (e.g. `auto-`) |
-| Keep Hourly | Keep N most recent hourly snapshots (0 = unlimited) |
-| Keep Daily | Keep N most recent daily snapshots |
-| Keep Weekly | Keep N most recent weekly snapshots |
-| Keep Monthly | Keep N most recent monthly snapshots |
-| Keep Yearly | Keep N most recent yearly snapshots |
+| Dataset | Dataset to prune (e.g. `tank/data`); its child datasets are covered too, each on its own |
+| Prefix | Snapshot name prefix to match (e.g. `auto-` or `auto-hourly-`); required |
+| Keep Hourly | Keep the newest snapshot of each of the last N hours that have one (0 = off) |
+| Keep Daily | Keep the newest snapshot of each of the last N days |
+| Keep Weekly | Keep the newest snapshot of each of the last N ISO weeks |
+| Keep Monthly | Keep the newest snapshot of each of the last N months |
+| Keep Yearly | Keep the newest snapshot of each of the last N years |
 
-Snapshots are sorted by creation time and assigned to time buckets. The N newest in each configured bucket are retained; the rest are destroyed. A snapshot matching multiple buckets is retained if any bucket's limit has not been reached.
+The tiers add up, as in sanoid and TrueNAS: with Keep Hourly 24 and Keep Daily 7, the newest snapshot of each of the last 24 hours stays, and so does the newest snapshot of each of the last 7 days. A snapshot kept by any tier stays. With every count at 0 the policy keeps everything.
 
 **Via API:**
 ```
@@ -314,24 +305,37 @@ rsync -avz --exclude='.zfs/' --exclude='*.tmp' /mnt/tank/data/ backup@server:/ba
 
 ---
 
-## Database Backup
+## Configuration Backup
 
-The DPlaneOS PostgreSQL database contains users, roles, audit logs, container metadata, and monitoring history. It is separate from ZFS pool data.
+One file holds the whole configuration: the database (users, groups, shares, alerts, audit log, everything stored there) and the settings kept in files: snapshot, replication and rsync schedules, firewall rules, certificates and the ACME account, Docker stack files, iSCSI and NVMe-oF exports, NixOS settings, replication SSH keys, the audit log key, the secrets key (optional) and the network configuration. Data on the pools is not part of it.
 
-### One-time backup
+| Where | How |
+|---|---|
+| Settings → Maintenance → Download Backup | `.tar.gz`; "Include the secrets key" lets another machine open the stored passwords (keep that file as safe as the passwords) |
+| Daily, automatic | `<first pool>/.dplaneos-config/dplaneos-config-<host>-<date>.tar.gz`, newest 14, mode 0600 (with the secrets key): survives the loss of the boot disk |
+| API | `GET /api/system/config/backup?secrets=1`, `GET /api/system/config/backups` |
+
+### Restore
+
+Settings → Maintenance → Configuration Restore (upload a file or pick a stored backup), or on the console:
 
 ```bash
-sudo -u postgres pg_dump dplaneos > /mnt/backup/dplaneos-$(date +%Y%m%d).sql
-
-# Compressed
-sudo -u postgres pg_dump dplaneos | gzip > /mnt/backup/dplaneos-$(date +%Y%m%d).sql.gz
+sudo dplaned -config-dir /etc/dplaneos -recover-restore <backup.tar.gz>   # add -recover-network on the same hardware
+sudo systemctl restart dplaned
 ```
 
-### Continuous archiving (WAL)
+What happens:
+
+1. The archive is checked: format, checksum of the database dump, `pg_restore --list`, only known paths, not from a newer DPlaneOS than this one. Nothing is changed if a check fails.
+2. The daemon restarts. Before it uses the database it writes the current configuration to `/var/lib/dplaneos/before-restore.tar.gz` (downloadable and restorable: the undo), then replaces the database in one transaction (a failure leaves it unchanged) and writes the files.
+3. Migrations bring a backup from an older DPlaneOS up to date; startup recreates accounts, `smb.conf`, NFS exports, firewall, iSCSI and timers from the restored state. Everyone logs in again (sessions are cleared).
+4. An alert reports the result. NixOS settings from the backup show as pending under Settings → NixOS until applied. The network settings are only restored when asked for (interface names differ on other hardware). A node in a cluster must leave it before a restore; a backup taken on a cluster member restores without the membership.
+
+### Point-in-time recovery of the database (WAL)
 
 For point-in-time recovery, configure WAL archiving via the NixOS module. Do not edit `postgresql.conf` directly - NixOS regenerates it on every `nixos-rebuild switch`.
 
-**Standalone (no HA):** add to `configuration.nix`:
+**Standalone (no HA):** add to `/etc/nixos/local.nix`:
 ```nix
 services.postgresql.settings = {
   archive_mode    = "on";
@@ -339,42 +343,15 @@ services.postgresql.settings = {
   wal_level       = "replica";
 };
 ```
-Then run `sudo nixos-rebuild switch`.
+Then rebuild (`sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure`).
 
 **Clusters:** every node has its own database; set up archiving on each node you want to recover.
-Add under `postgresql.parameters`:
-```yaml
-archive_mode: 'on'
-archive_command: 'cp %p /mnt/backup/wal/%f'
-```
-
-### Restore
-
-```bash
-sudo systemctl stop dplaned
-sudo -u postgres psql -c "DROP DATABASE dplaneos;"
-sudo -u postgres psql -c "CREATE DATABASE dplaneos OWNER dplaneos;"
-sudo -u postgres psql dplaneos < /mnt/backup/dplaneos-20260509.sql
-sudo systemctl start dplaned
-```
 
 ---
 
 ## NixOS Configuration Backup
 
-The OS-level configuration (`configuration.nix`, `flake.nix`, `flake.lock`, all `nixos/*.nix` files) should be kept in a separate Git repository.
-
-```bash
-# In the DPlaneOS project directory
-git push origin main   # or whichever remote holds your fork/customizations
-```
-
-For a custom installation (operator-managed flake), back up at minimum:
-- `flake.nix` and `flake.lock`
-- `nixos/configuration-standalone.nix` (or your custom configuration)
-- Any site-local patches or overrides
-
-If you use the stock DPlaneOS flake without customization, you only need to know the DPlaneOS version you were running - any future install from the same release tag produces an identical system.
+An installed system is built from `/etc/nixos/flake.nix` (the DPlaneOS release) plus `hardware-configuration.nix` and an optional `local.nix`; settings made in the web UI are part of the configuration backup. Keep `local.nix` in Git if you have one (Settings → NixOS → Back up config to Git pushes `/etc/nixos`).
 
 ---
 
@@ -384,9 +361,8 @@ If you use the stock DPlaneOS flake without customization, you only need to know
 
 1. Boot from DPlaneOS ISO and install to replacement boot disk
 2. After first boot, import data pools: `zpool import -a`
-3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
-4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once)
-5. Restore the PostgreSQL database from backup if needed
+3. Settings → Maintenance → Stored backups: restore the newest backup from the pool (or upload a downloaded one)
+4. If you keep the configuration in Git (GitOps): System › Git › Configuration repository, then **Apply** the changes the first check lists
 
 ZFS pools on the data disks are completely independent of the boot disk. A boot disk failure does not affect pool data as long as the pool was cleanly exported (or the system crashed cleanly - ZFS's transaction group model tolerates sudden power loss).
 

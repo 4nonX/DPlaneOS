@@ -54,59 +54,6 @@ let
   # Passed to dplaned via: --smb-conf /var/lib/dplaneos/smb-shares.conf
   sharesConfPath = "/var/lib/dplaneos/smb-shares.conf";
 
-  # The [global] section is fully owned by NixOS.
-  # It is rendered here from options - never touched by the daemon.
-  globalSection = ''
-    [global]
-       workgroup = ${cfg.workgroup}
-       server string = ${cfg.serverString}
-       netbios name = ${cfg.netbiosName}
-
-       # Authentication
-       security = user
-       passdb backend = tdbsam
-       map to guest = ${if cfg.allowGuest then "Bad User" else "Never"}
-       ${lib.optionalString cfg.allowGuest "guest account = nobody"}
-
-       # Protocol : SMB2/3 only (SMB1 disabled, security risk)
-       server min protocol = SMB2
-       server max protocol = SMB3
-
-       # Character encoding
-       unix charset = UTF-8
-       dos charset = CP850
-
-       # Logging (NixOS journal, not a file : use: journalctl -u smbd)
-       logging = systemd
-       log level = 1
-
-       # Performance
-       socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072
-       read raw = yes
-       write raw = yes
-       use sendfile = yes
-
-       ${lib.optionalString cfg.timeMachine ''
-       # macOS Time Machine (Bonjour/mDNS advertisement)
-       fruit:metadata = stream
-       fruit:model = MacSamba
-       fruit:posix_rename = yes
-       fruit:veto_appledouble = no
-       fruit:nfs_aces = no
-       fruit:wipe_intentionally_left_blank_rfork = yes
-       fruit:delete_empty_adfiles = yes
-       vfs objects = catia fruit streams_xattr
-       ''}
-
-       ${lib.optionalString (cfg.extraGlobalConfig != "") ''
-       # Extra global config (from DPlaneOS settings UI)
-       ${cfg.extraGlobalConfig}
-       ''}
-
-       # Include DPlaneOS share definitions (written by web UI)
-       # This line is the bridge: NixOS owns [global], daemon owns share stanzas.
-       include = ${sharesConfPath}
-  '';
 
 in {
 
@@ -118,6 +65,16 @@ in {
       type        = lib.types.bool;
       default     = true;
       description = "Enable DPlaneOS Samba (SMB) integration. Samba is a core NAS feature and is enabled by default.";
+    };
+
+    package = lib.mkOption {
+      type        = lib.types.package;
+      # pkgs.samba is built --without-ads ("ADS support not compiled in" on
+      # net ads join). The LDAP build is in the binary cache and about the
+      # same size; sambaFull would add Ceph (1.4 GB).
+      default     = pkgs.samba.override { enableLDAP = true; };
+      defaultText = lib.literalExpression "pkgs.samba.override { enableLDAP = true; }";
+      description = "Samba package (smbd, winbindd, net, the NSS module and the daemon's tools). Must support Active Directory.";
     };
 
     workgroup = lib.mkOption {
@@ -143,8 +100,9 @@ in {
       type    = lib.types.bool;
       default = false;
       description = ''
-        Allow guest (unauthenticated) access to shares marked guest ok = yes.
-        Disabled by default - guest access is a security risk on production NAS.
+        Map every unknown user to the guest account (map to guest = Bad User),
+        also when no share allows guests. Without it this is set only while a
+        share allows guest access (the daemon writes it with the shares).
       '';
     };
 
@@ -233,7 +191,7 @@ in {
     # We hand it the [global] section we built above.
     services.samba = {
       enable = true;
-      package = pkgs.samba;
+      package = cfg.package;
       # openFirewall handled below so we can also open UDP ports
       openFirewall = false;
 
@@ -246,7 +204,7 @@ in {
         # installs that have not configured multi-forest IDMAP are unaffected.
         defaultIdmap = {
           "idmap config * : backend" = "tdb";
-          "idmap config * : range"   = "3000-7999";
+          "idmap config * : range"   = "90000000-99999999"; # clear of the user and group IDs DPlaneOS gives (3000 up)
           "idmap config ${cfg.workgroup} : backend" = "rid";
           "idmap config ${cfg.workgroup} : range"   = "10000-999999";
         };
@@ -271,17 +229,15 @@ in {
           "server string"       = cfg.serverString;
           "netbios name"        = cfg.netbiosName;
           "security"            = cfg.securityMode;
-          "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
-          "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
+          # tdbsam in every mode: there is no "secrets" passdb backend (with it,
+          # net and smbd fail: "No builtin nor plugin backend for secrets found")
+          "passdb backend"      = "tdbsam";
           "server min protocol" = "SMB2";
           "server max protocol" = "SMB3";
           "unix charset"        = "UTF-8";
           "dos charset"         = "CP850";
           "logging"             = "systemd";
           "log level"           = "1";
-          "socket options"      = "TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072";
-          "read raw"            = "yes";
-          "write raw"           = "yes";
           "use sendfile"        = "yes";
           # ── THE BRIDGE LINE ───────────────────────────────────────────────
           # NixOS writes the [global] section; DPlaneOS writes the shares.
@@ -289,6 +245,10 @@ in {
           # without giving the daemon ownership of the whole smb.conf.
           "include"             = sharesConfPath;
         } // idmapAttrs // adAttrs
+          # "map to guest" is written by the daemon in front of the shares when a
+          # share allows guests (it comes after "include" here, so a value set
+          # here would win). allowGuest maps unknown users to guest always.
+          // lib.optionalAttrs cfg.allowGuest { "map to guest" = "Bad User"; }
           // lib.optionalAttrs cfg.timeMachine {
           "fruit:metadata"                        = "stream";
           "fruit:model"                           = "MacSamba";
@@ -302,7 +262,7 @@ in {
       };
     };
 
-    # Note: winbind is embedded in pkgs.samba and started automatically by
+    # Note: winbind is embedded in cfg.package and started automatically by
     # smbd when securityMode = "ads". There is no separate services.winbind
     # NixOS module in nixpkgs 25.11 - do not reference it.
 
@@ -311,7 +271,7 @@ in {
     # numeric UIDs for AD users. `system.nssModules` ensures libnss_winbind.so
     # is available; `system.nssDatabases` appends "winbind" to passwd and group
     # in /etc/nsswitch.conf so NSS lookups resolve AD identities.
-    system.nssModules = lib.optional (cfg.securityMode == "ads") pkgs.samba;
+    system.nssModules = lib.optional (cfg.securityMode == "ads") cfg.package;
     system.nssDatabases = lib.mkIf (cfg.securityMode == "ads") {
       passwd = lib.mkAfter [ "winbind" ];
       group  = lib.mkAfter [ "winbind" ];
@@ -364,9 +324,18 @@ in {
     # ── smbd ordering: after DPlaneOS daemon has written the shares file ─────
     # dplaned writes smb-shares.conf at startup (it reads the DB and rewrites
     # the file to match). We want smbd to start AFTER that write.
-    systemd.services.smbd = {
+    # (The unit is samba-smbd: an override of "smbd" made a stray unit
+    # without ExecStart and ordered nothing.)
+    systemd.services.samba-smbd = {
       after  = [ "dplaned.service" "dplaneos-smb-shares-stub.service" ];
       wants  = [ "dplaneos-smb-shares-stub.service" ];
+    };
+
+    # WS-Discovery: Windows 10 and later find the server under Network in
+    # Explorer only through it (NetBIOS browsing is gone there).
+    services.samba-wsdd = {
+      enable       = true;
+      openFirewall = cfg.openFirewall;
     };
 
     # ── Also make dplaned reload samba when it changes the shares file ────────

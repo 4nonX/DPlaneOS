@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,13 +15,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/dockerclient"
 	"dplaned/internal/gitops"
+	"dplaned/internal/gitsync"
 	"dplaned/internal/secrets"
+
+	"github.com/gorilla/mux"
 )
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
@@ -411,7 +419,8 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 		r.commit_name, r.commit_email,
 		COALESCE(TO_CHAR(r.last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
 		COALESCE(r.last_commit,''), COALESCE(r.last_error,''),
-		r.enabled, COALESCE(c.name,''), COALESCE(c.id, 0)
+		r.enabled, COALESCE(c.name,''), COALESCE(c.id, 0),
+		r.deployed_commit, r.deploy_error, r.webhook_secret <> ''
 		FROM git_sync_repos r
 		LEFT JOIN git_credentials c ON r.auth_type = 'cred' AND r.auth_token = CAST(c.id AS TEXT)
 		ORDER BY r.name`)
@@ -425,12 +434,15 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, autoSync, syncInterval, enabled, credID int
 		var name, repoURL, branch, localPath, composePath,
-			commitName, commitEmail, lastSyncAt, lastCommit, lastError, credName string
+			commitName, commitEmail, lastSyncAt, lastCommit, lastError, credName,
+			deployedCommit, deployError string
+		var hasWebhook bool
 		if err := rows.Scan(&id, &name, &repoURL, &branch, &localPath,
 			&composePath, &autoSync, &syncInterval,
 			&commitName, &commitEmail,
 			&lastSyncAt, &lastCommit, &lastError,
-			&enabled, &credName, &credID); err != nil {
+			&enabled, &credName, &credID,
+			&deployedCommit, &deployError, &hasWebhook); err != nil {
 			log.Printf("GIT REPOS LIST SCAN ERROR: %v", err)
 			continue
 		}
@@ -442,6 +454,8 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 			"commit_name": commitName, "commit_email": commitEmail,
 			"last_sync_at": lastSyncAt, "last_commit": lastCommit, "last_error": lastError,
 			"enabled": enabled == 1, "cred_name": credName,
+			"deployed_commit": deployedCommit, "deploy_error": deployError, "has_webhook": hasWebhook,
+			"project": gitStackProject(name),
 			"cred_id": func() any {
 				if credID > 0 {
 					return credID
@@ -680,24 +694,104 @@ func (h *GitReposHandler) DeployRepo(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 404, map[string]any{"success": false, "error": "Repo not found"})
 		return
 	}
-
-	composeFull, pathErr := validateComposePath(repo.LocalPath, repo.ComposePath)
-	if pathErr != nil {
-		respondJSON(w, 400, map[string]any{"success": false, "error": "compose_path: " + pathErr.Error()})
+	out, err := h.deployRepo(repo.ID, repo.Name, repo.LocalPath, repo.ComposePath)
+	if err != nil {
+		respondJSON(w, 500, map[string]any{"success": false, "error": err.Error(), "output": out})
 		return
+	}
+	respondJSON(w, 200, map[string]any{"success": true, "output": out})
+}
+
+// gitStackProject is the compose project of a Git-backed stack. Without
+// -p compose named it after the compose file's folder, so two repositories
+// with docker/docker-compose.yml were one project and deploying one removed
+// the other's containers (--remove-orphans).
+func gitStackProject(name string) string {
+	return "git-" + strings.Trim(sanitizeName(name), "-_")
+}
+
+// deployRepo runs `compose up` for a repository's compose file under its
+// own project and records the deployed commit or the error.
+func (h *GitReposHandler) deployRepo(id int, name, localPath, composePath string) (string, error) {
+	composeFull, err := validateComposePath(localPath, composePath)
+	if err != nil {
+		return "", fmt.Errorf("compose_path: %w", err)
 	}
 	if _, err := os.Stat(composeFull); err != nil {
-		respondJSON(w, 400, map[string]any{"success": false,
-			"error": fmt.Sprintf("Compose file not found at %s - pull first", composeFull)})
-		return
+		return "", fmt.Errorf("compose file not found at %s - pull first", composeFull)
 	}
+	project := gitStackProject(name)
+	unlock, ok := lockStack(project)
+	if !ok {
+		return "", fmt.Errorf("stack %s is busy with another operation", project)
+	}
+	defer unlock()
 
-	out, err := cmdutil.RunSlow("docker_compose", "compose", "-f", composeFull, "up", "-d", "--remove-orphans")
+	takeDownLegacyProjects(project, composeFull)
+	out, err := cmdutil.RunSlow("docker_compose", "compose", "-p", project, "--project-directory", filepath.Dir(composeFull),
+		"-f", composeFull, "up", "-d", "--remove-orphans")
+	commit := getHeadCommit(localPath)
 	if err != nil {
-		respondJSON(w, 500, map[string]any{"success": false, "error": string(out)})
+		msg := fmt.Sprintf("deploy of %s failed: %v: %s", commit, err, lastLines(out, 5))
+		h.db.Exec(`UPDATE git_sync_repos SET deploy_error=$1 WHERE id=$2`, msg, id) //nolint
+		return string(out), fmt.Errorf("%s", msg)
+	}
+	h.db.Exec(`UPDATE git_sync_repos SET deployed_commit=$1, deploy_error='' WHERE id=$2`, commit, id) //nolint
+	return string(out), nil
+}
+
+// takeDownLegacyProjects stops containers this compose file started under
+// another project name (before -p): otherwise both run, on the same ports.
+func takeDownLegacyProjects(project, composeFull string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cs, err := dockerclient.New().ListAll(ctx)
+	if err != nil {
 		return
 	}
-	respondJSON(w, 200, map[string]any{"success": true, "output": string(out)})
+	legacy := map[string]bool{}
+	for _, c := range cs {
+		p := c.Labels["com.docker.compose.project"]
+		for _, f := range strings.Split(c.Labels["com.docker.compose.project.config_files"], ",") {
+			if f == composeFull && p != "" && p != project {
+				legacy[p] = true
+			}
+		}
+	}
+	for p := range legacy {
+		log.Printf("GIT-REPOS: %s ran as compose project %q; taking that down for %q", composeFull, p, project)
+		if out, err := cmdutil.RunSlow("docker_compose", "compose", "-p", p, "--project-directory", filepath.Dir(composeFull),
+			"-f", composeFull, "down"); err != nil {
+			log.Printf("GIT-REPOS: down of legacy project %s: %v: %s", p, err, lastLines(out, 3))
+		}
+	}
+}
+
+// updateClone brings a clone to the remote branch head, as Komodo does
+// (fetch, then reset --hard): `git pull --rebase` stopped for good at the
+// first local change. Local changes or commits that are not pushed are
+// never thrown away: the update stops and says so.
+func updateClone(localPath, repoURL, branch string, env []string) error {
+	if err := gitops.EnsureRepoRootDir(localPath, repoURL, branch, env); err != nil {
+		return err
+	}
+	if out, err := cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, localPath, env, "git", "fetch", "origin", branch); err != nil {
+		return fmt.Errorf("git fetch: %s", strings.TrimSpace(string(out)))
+	}
+	if status, _ := runGitInDir(localPath, nil, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		return fmt.Errorf("the clone has local changes that are not pushed; push or discard them first")
+	}
+	ahead, _ := runGitInDir(localPath, nil, "rev-list", "--count", "origin/"+branch+"..HEAD")
+	if n := strings.TrimSpace(ahead); n != "" && n != "0" {
+		return fmt.Errorf("the clone has %s local commit(s) that are not pushed; push them first", n)
+	}
+	if out, err := runGitInDir(localPath, nil, "checkout", "-f", branch); err != nil {
+		return fmt.Errorf("git checkout %s: %s", branch, out)
+	}
+	if out, err := runGitInDir(localPath, nil, "reset", "--hard", "origin/"+branch); err != nil {
+		return fmt.Errorf("git reset: %s", out)
+	}
+	return nil
 }
 
 // ExportToRepo - POST /api/git-sync/repos/export?id=N
@@ -1002,14 +1096,15 @@ func (h *GitReposHandler) StatusRepo(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────
 
 type repoAutoSync struct {
-	id           int
-	name         string
-	repoURL      string
-	branch       string
-	localPath    string
-	composePath  string
-	syncInterval int
-	lastSyncAt   string
+	id             int
+	name           string
+	repoURL        string
+	branch         string
+	localPath      string
+	composePath    string
+	syncInterval   int
+	lastSyncAt     string
+	deployedCommit string
 }
 
 // StartAutoSync starts the background polling loop for all repos that have
@@ -1028,7 +1123,8 @@ func (h *GitReposHandler) StartAutoSync() {
 func (h *GitReposHandler) runAutoSyncCycle() {
 	rows, err := h.db.Query(`SELECT id, name, repo_url, branch, local_path, compose_path,
 		sync_interval,
-		COALESCE(TO_CHAR(last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+		COALESCE(TO_CHAR(last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+		deployed_commit
 		FROM git_sync_repos
 		WHERE enabled=1 AND auto_sync=1`)
 	if err != nil {
@@ -1037,10 +1133,11 @@ func (h *GitReposHandler) runAutoSyncCycle() {
 	}
 	defer rows.Close()
 
+	var due []repoAutoSync
 	for rows.Next() {
 		var repo repoAutoSync
 		if err := rows.Scan(&repo.id, &repo.name, &repo.repoURL, &repo.branch,
-			&repo.localPath, &repo.composePath, &repo.syncInterval, &repo.lastSyncAt); err != nil {
+			&repo.localPath, &repo.composePath, &repo.syncInterval, &repo.lastSyncAt, &repo.deployedCommit); err != nil {
 			continue
 		}
 		if repo.lastSyncAt != "" {
@@ -1049,13 +1146,35 @@ func (h *GitReposHandler) runAutoSyncCycle() {
 				continue
 			}
 		}
-		h.autoSyncOne(repo)
+		due = append(due, repo)
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("GIT-REPOS: auto-sync rows error: %v", err)
 	}
+	rows.Close()
+	for _, repo := range due {
+		h.autoSyncOne(repo)
+	}
 }
 
+// syncRepoByID syncs one repository now and deploys it if its commit changed
+// (the webhook path).
+func (h *GitReposHandler) syncRepoByID(id int) {
+	var repo repoAutoSync
+	err := h.db.QueryRow(`SELECT id, name, repo_url, branch, local_path, compose_path, sync_interval, deployed_commit
+		FROM git_sync_repos WHERE id=$1 AND enabled=1`, id).
+		Scan(&repo.id, &repo.name, &repo.repoURL, &repo.branch, &repo.localPath, &repo.composePath,
+			&repo.syncInterval, &repo.deployedCommit)
+	if err != nil {
+		log.Printf("GIT-REPOS: webhook for repo %d: %v", id, err)
+		return
+	}
+	h.autoSyncOne(repo)
+}
+
+// autoSyncOne brings the clone to the remote head and deploys it when the
+// commit differs from the deployed one. Deploying on every cycle restarted
+// stacks the user had stopped, every few minutes.
 func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 	log.Printf("GIT-REPOS: Auto-sync starting for %s", repo.name)
 
@@ -1064,16 +1183,7 @@ func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 
 	os.MkdirAll(filepath.Dir(repo.localPath), 0755)
 
-	var syncErr error
-	if err := gitops.EnsureRepoRootDir(repo.localPath, repo.repoURL, repo.branch, env); err != nil {
-		syncErr = err
-	} else {
-		out, err := cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, repo.localPath, env,
-			"git", "pull", "--rebase", "origin", repo.branch)
-		if err != nil {
-			syncErr = fmt.Errorf("%s", strings.TrimSpace(string(out)))
-		}
-	}
+	syncErr := updateClone(repo.localPath, repo.repoURL, repo.branch, env)
 
 	if syncErr != nil {
 		if _, dbErr := h.db.Exec(`UPDATE git_sync_repos SET last_error=$1, last_sync_at=NOW() WHERE id=$2`,
@@ -1091,18 +1201,92 @@ func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 	}
 	log.Printf("GIT-REPOS: Auto-sync complete for %s - %s", repo.name, commit)
 
-	// Run compose up if the file exists
-	composeFull, pathErr := validateComposePath(repo.localPath, repo.composePath)
-	if pathErr != nil {
-		return
+	if commit != "" && commit == repo.deployedCommit {
+		return // deployed already: a stack stopped on purpose stays stopped
 	}
-	if _, err := os.Stat(composeFull); err != nil {
-		return
-	}
-	if out, err := cmdutil.RunSlow("docker_compose", "compose", "-f", composeFull,
-		"up", "-d", "--remove-orphans"); err != nil {
-		log.Printf("GIT-REPOS: Auto-deploy failed for %s: %v - %s", repo.name, err, string(out))
+	if _, err := h.deployRepo(repo.id, repo.name, repo.localPath, repo.composePath); err != nil {
+		log.Printf("GIT-REPOS: Auto-deploy failed for %s: %v", repo.name, err)
+		DispatchAlert("warning", "gitsync.deploy_failed", repo.name, err.Error())
 	} else {
-		log.Printf("GIT-REPOS: Auto-deployed %s", repo.name)
+		log.Printf("GIT-REPOS: Auto-deployed %s at %s", repo.name, commit)
 	}
+}
+
+// ─────────────────────────────────────────────
+//  Webhooks: deploy on push
+// ─────────────────────────────────────────────
+
+// RepoWebhook - POST /api/git-sync/repos/webhook/{id} (no session: the
+// signature is the authentication). GitHub, Gitea/Forgejo (HMAC-SHA256 of
+// the body) and GitLab (token) push notifications for the tracked branch
+// start a sync and, on a new commit, a deploy.
+func (h *GitReposHandler) RepoWebhook(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var sealed, branch string
+	if err := h.db.QueryRow(`SELECT webhook_secret, branch FROM git_sync_repos WHERE id=$1 AND enabled=1`, id).
+		Scan(&sealed, &branch); err != nil || sealed == "" {
+		http.Error(w, "not found", http.StatusNotFound) // same answer as a wrong signature
+		return
+	}
+	secret, err := secrets.Open(sealed)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := gitsync.VerifyWebhook(r.Header, body, secret); !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var push struct {
+		Ref string `json:"ref"`
+	}
+	json.Unmarshal(body, &push) //nolint
+	if push.Ref != "" && push.Ref != "refs/heads/"+branch {
+		respondJSON(w, 200, map[string]any{"success": true, "ignored": "push to " + push.Ref})
+		return
+	}
+	go h.syncRepoByID(id)
+	respondJSON(w, 202, map[string]any{"success": true, "message": "sync started"})
+}
+
+// RotateWebhookSecret - POST /api/git-sync/repos/webhook-secret?id=N
+// Creates a new secret; it is shown once, with the webhook path.
+func (h *GitReposHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.URL.Query().Get("id"))
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"success": false, "error": "id required"})
+		return
+	}
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		respondJSON(w, 500, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	secret := hex.EncodeToString(raw)
+	sealed, err := secrets.Seal(secret)
+	if err != nil {
+		respondJSON(w, 500, map[string]any{"success": false, "error": "Failed to encrypt the secret"})
+		return
+	}
+	res, err := h.db.Exec(`UPDATE git_sync_repos SET webhook_secret=$1 WHERE id=$2`, sealed, id)
+	if err != nil {
+		respondJSON(w, 500, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		respondJSON(w, 404, map[string]any{"success": false, "error": "Repo not found"})
+		return
+	}
+	respondJSON(w, 200, map[string]any{"success": true, "secret": secret,
+		"path": fmt.Sprintf("/api/git-sync/repos/webhook/%d", id),
+		"note": "Content type application/json, push events. Shown once: store it in the repository's webhook settings."})
 }

@@ -109,7 +109,7 @@ The NixOS configuration provides:
 - **Avahi** - `dplaneos.local` mDNS discovery
 - **Nginx** - reverse proxy with 7-day WebSocket timeout
 - **Firewall** - HTTP, SMB, NFS, SSH ports open
-- **Daily DB backups** - systemd timer with 30-day retention
+- **Daily configuration backups** - written by the daemon to the first data pool (`.dplaneos-config/`, newest 14)
 - **Recovery CLI** - `sudo dplaneos-recovery`
 - **Removable media** - udev rules for USB device detection
 
@@ -144,7 +144,7 @@ Copy that hash into `flake.nix` replacing `vendorHash = null;` and rebuild.
 | `setup-nixos.sh` | Interactive setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
 | `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) - replicated topology (Path B) only |
-| `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
+| `dplaneos-update-health.sh` | Check after an update's reboot; goes back to the previous generation when it fails (ota-module.nix) |
 | `README.md` | NixOS installation paths overview: ISO, Flake, and standalone |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step install guide for NixOS beginners |
 

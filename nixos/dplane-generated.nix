@@ -12,8 +12,7 @@
 #   no string templates, no injection risk of any kind.
 #
 # On nixos-rebuild, NixOS evaluates this file and applies:
-#   - Hostname, timezone, DNS, NTP
-#   - Static IPs, bond interfaces, VLANs
+#   - Hostname, timezone, NTP
 #   - Firewall port lists
 #   - Samba global settings
 #
@@ -33,72 +32,30 @@ let
         then builtins.fromJSON (builtins.readFile stateFile)
         else {};
 
-  # ── Network helpers ─────────────────────────────────────────────────────────
+  # Values set in the web UI win over the defaults of the configuration and
+  # the modules (priority 90; lib.mkForce in a local module still wins). At
+  # the same priority (as before) NixOS refused to evaluate: setting the
+  # hostname, time zone, SSH options, Samba workgroup or a sysctl in the UI
+  # made every rebuild fail with "conflicting definition values".
+  ov = lib.mkOverride 90;
 
-  # Build systemd.network.networks attrset from network_statics.
-  # Each key in s.network_statics becomes a "20-<iface>-static" network unit.
-  mkStaticNetworks = statics:
-    lib.mapAttrs' (iface: cfg: {
-      name  = "20-${iface}-static";
-      value = {
-        matchConfig.Name    = iface;
-        networkConfig.DHCP  = "no";
-        address             = [ cfg.cidr ];
-        routes = lib.optionals (cfg.gateway != "") [{
-          routeConfig.Gateway = cfg.gateway;
-        }];
-      };
-    }) statics;
-
-  # Build systemd.network.netdevs and .networks attrsets from network_bonds.
-  # Returns { netdevs = { ... }; networks = { ... }; }
-  mkBondNetdevs = bonds:
-    lib.foldlAttrs (acc: name: cfg: {
-      netdevs  = acc.netdevs // {
-        "10-${name}" = {
-          netdevConfig = { Name = name; Kind = "bond"; };
-          bondConfig.Mode = cfg.mode;
-        };
-      };
-      networks = acc.networks // lib.listToAttrs (lib.imap0 (i: slave: {
-        name  = "2${toString (0 + i)}-${slave}-bond";
-        value = {
-          matchConfig.Name   = slave;
-          networkConfig.Bond = name;
-        };
-      }) cfg.slaves);
-    }) { netdevs = {}; networks = {}; } bonds;
-
-  # Build systemd.network.netdevs and .networks from network_vlans.
-  mkVLANNetdevs = vlans:
-    lib.foldlAttrs (acc: ifName: cfg: {
-      netdevs  = acc.netdevs // {
-        "10-${ifName}" = {
-          netdevConfig = { Name = ifName; Kind = "vlan"; };
-          vlanConfig.Id = cfg.vid;
-        };
-      };
-      networks = acc.networks // {
-        "10-${cfg.parent}-vlan" = {
-          matchConfig.Name        = cfg.parent;
-          networkConfig.VLAN      = [ ifName ];
-        };
-      };
-    }) { netdevs = {}; networks = {}; } vlans;
-
-  # Compute all network units
-  staticNets  = mkStaticNetworks (s.network_statics or {});
-  bondResult  = mkBondNetdevs    (s.network_bonds   or {});
-  vlanResult  = mkVLANNetdevs    (s.network_vlans   or {});
+  # A pure evaluation cannot read the state file (pathExists is false), so a
+  # rebuild without --impure silently drops every setting made in the UI.
+  pure = !(builtins ? currentTime);
 
 in
 {
-  # ── System ──────────────────────────────────────────────────────────────────
-  networking.hostName    = lib.mkIf (s ? hostname) s.hostname;
-  time.timeZone          = lib.mkIf (s ? timezone) s.timezone;
+  warnings = lib.optional pure
+    "DPlaneOS: pure evaluation, settings made in the web UI (/var/lib/dplaneos/dplane-state.json) are not applied. On an installed system rebuild with --impure (image and CI builds can ignore this).";
 
-  # ── DNS / NTP ───────────────────────────────────────────────────────────────
-  networking.nameservers        = s.dns_servers or [];
+  # ── System ──────────────────────────────────────────────────────────────────
+  networking.hostName    = lib.mkIf (s ? hostname) (ov s.hostname);
+  time.timeZone          = lib.mkIf (s ? timezone) (ov s.timezone);
+
+  # ── NTP ─────────────────────────────────────────────────────────────────────
+  # DNS servers, addresses, bonds and VLANs are not here: the daemon writes
+  # them as networkd files (/etc/systemd/network/05-dplane-*,
+  # /etc/systemd/resolved.conf.d/50-dplane.conf), applied without a rebuild.
   services.timesyncd.servers    = s.ntp_servers or [];
 
   # ── Firewall ────────────────────────────────────────────────────────────────
@@ -107,40 +64,38 @@ in
   networking.firewall.allowedTCPPorts = lib.mkIf (s ? firewall_tcp) s.firewall_tcp;
   networking.firewall.allowedUDPPorts = lib.mkIf (s ? firewall_udp) s.firewall_udp;
 
-  # ── Network interfaces ──────────────────────────────────────────────────────
+  # ── Network interfaces (networkd; files written by the daemon) ──────────────
   systemd.network.enable   = true;
-  systemd.network.networks = staticNets // bondResult.networks // vlanResult.networks;
-  systemd.network.netdevs  = bondResult.netdevs // vlanResult.netdevs;
 
   # ── Samba global settings ────────────────────────────────────────────────────
   # These feed into modules/samba.nix via the services.dplaneos.samba options.
   # Only applied when samba is enabled (samba.nix config = lib.mkIf cfg.enable {...})
   services.dplaneos.samba = lib.mkIf (s ? samba_workgroup) {
-    workgroup         = s.samba_workgroup      or "WORKGROUP";
-    serverString      = s.samba_server_string  or "DPlaneOS NAS";
-    timeMachine       = s.samba_time_machine   or false;
-    allowGuest        = s.samba_allow_guest    or false;
-    extraGlobalConfig = s.samba_extra_global   or "";
-    securityMode      = s.samba_security_mode  or "user";
-    realm             = s.samba_realm          or null;
-    domainController  = s.samba_domain_controller or null;
+    workgroup         = ov (s.samba_workgroup      or "WORKGROUP");
+    serverString      = ov (s.samba_server_string  or "DPlaneOS NAS");
+    timeMachine       = ov (s.samba_time_machine   or false);
+    allowGuest        = ov (s.samba_allow_guest    or false);
+    extraGlobalConfig = ov (s.samba_extra_global   or "");
+    securityMode      = ov (s.samba_security_mode  or "user");
+    realm             = ov (s.samba_realm          or null);
+    domainController  = ov (s.samba_domain_controller or null);
     # Multi-forest IDMAP: list of { name, backend, low, high } attrsets.
     # samba.nix translates each entry into "idmap config <name> : ..." lines.
-    idmapDomains      = s.idmap_domains        or [];
+    idmapDomains      = ov (s.idmap_domains        or []);
   };
 
   # ── SSH Daemon ───────────────────────────────────────────────────────────────
-  services.openssh.ports           = lib.mkIf (s ? ssh_port) [ s.ssh_port ];
+  services.openssh.ports           = lib.mkIf (s ? ssh_port) (ov [ s.ssh_port ]);
   services.openssh.settings.PasswordAuthentication =
-    lib.mkIf (s ? ssh_password_auth) s.ssh_password_auth;
+    lib.mkIf (s ? ssh_password_auth) (ov s.ssh_password_auth);
   services.openssh.settings.PermitRootLogin =
-    lib.mkIf (s ? ssh_permit_root_login) s.ssh_permit_root_login;
+    lib.mkIf (s ? ssh_permit_root_login) (ov s.ssh_permit_root_login);
 
   # ── Kernel tuning (Settings → Tuning) ────────────────────────────────────────
   # mkAfter: a later zfs.zfs_arc_max on the command line wins over the default.
   boot.kernelParams = lib.mkIf (s ? zfs_arc_max)
     (lib.mkAfter [ "zfs.zfs_arc_max=${toString s.zfs_arc_max}" ]);
-  boot.kernel.sysctl = s.sysctl or {};
+  boot.kernel.sysctl = lib.mapAttrs (_: ov) (s.sysctl or {});
 
   # ── Web UI TLS (Certificates → Activate) ─────────────────────────────────────
   services.nginx.virtualHosts."_" = lib.mkIf (s ? tls_cert && s ? tls_key) {

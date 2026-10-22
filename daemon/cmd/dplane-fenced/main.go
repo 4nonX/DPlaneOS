@@ -5,22 +5,24 @@
 // update would leave the pool unprotected.
 //
 // Protocol:
-//   Listens on /run/dplaneos/fenced.sock (Unix stream).
-//   Each connection sends one JSON line, receives one JSON line, then closes.
 //
-//   Request:  {"cmd": "STATUS"}
-//             {"cmd": "RELEASE"}
-//             {"cmd": "FENCE",   "device": "/dev/sgN"}
-//             {"cmd": "UNFENCE", "device": "/dev/sgN"}
+//	Listens on /run/dplaneos/fenced.sock (Unix stream).
+//	Each connection sends one JSON line, receives one JSON line, then closes.
 //
-//   Response: {"ok": true, "data": ...}
-//             {"ok": false, "error": "..."}
+//	Request:  {"cmd": "STATUS"}
+//	          {"cmd": "RELEASE"}
+//	          {"cmd": "FENCE",   "device": "/dev/sgN"}
+//	          {"cmd": "UNFENCE", "device": "/dev/sgN"}
+//
+//	Response: {"ok": true, "data": ...}
+//	          {"ok": false, "error": "..."}
 //
 // Lifecycle:
-//   Startup: derive key, enumerate pool disks, register + reserve all.
-//   Every 30s: refresh disk list, fence any new disks.
-//   SIGTERM: release all reservations, unregister, remove socket, exit.
-//   Graceful failover: dplaned calls RELEASE via socket before exporting pools.
+//
+//	Startup: derive key, enumerate pool disks, register + reserve all.
+//	Every 30s: refresh disk list, fence any new disks.
+//	SIGTERM: release all reservations, unregister, remove socket, exit.
+//	Graceful failover: dplaned calls RELEASE via socket before exporting pools.
 package main
 
 import (
@@ -35,14 +37,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"dplaned/internal/scsipr"
+	"dplaned/internal/sdnotify"
 )
 
 const (
-	socketPath     = "/run/dplaneos/fenced.sock"
+	socketPath      = "/run/dplaneos/fenced.sock"
 	refreshInterval = 30 * time.Second
 )
 
@@ -52,9 +56,9 @@ type request struct {
 }
 
 type response struct {
-	OK    bool        `json:"ok"`
-	Error string      `json:"error,omitempty"`
-	Data  any `json:"data,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	Data  any    `json:"data,omitempty"`
 }
 
 // fenceState tracks which /dev/sgN devices we currently hold reservations on.
@@ -95,14 +99,39 @@ func main() {
 	}
 	log.Printf("listening on %s", socketPath)
 
-	// Periodic refresh goroutine: fence disks added after startup.
+	// Periodic refresh goroutine: fence disks added after startup. lastRefresh
+	// is its heartbeat for the systemd watchdog below.
+	var lastRefresh atomic.Int64
+	lastRefresh.Store(time.Now().UnixNano())
 	go func() {
 		t := time.NewTicker(refreshInterval)
 		defer t.Stop()
 		for range t.C {
 			fenceAllPoolDisks()
+			lastRefresh.Store(time.Now().UnixNano())
 		}
 	}()
+
+	// systemd: READY=1 once the socket accepts, then WATCHDOG=1 keep-alives
+	// while the refresh loop keeps completing. A refresh stuck in a SCSI
+	// command stops them, and systemd restarts the service (WatchdogSec);
+	// without any keep-alive systemd killed it every WatchdogSec.
+	if _, err := sdnotify.Notify("READY=1"); err != nil {
+		log.Printf("warning: sd_notify READY: %v", err)
+	}
+	if wd := sdnotify.WatchdogInterval(); wd > 0 {
+		go func() {
+			t := time.NewTicker(wd / 2)
+			defer t.Stop()
+			for range t.C {
+				if time.Since(time.Unix(0, lastRefresh.Load())) > 2*refreshInterval {
+					log.Printf("refresh loop stalled: withholding the watchdog keep-alive")
+					continue
+				}
+				sdnotify.Notify("WATCHDOG=1") //nolint
+			}
+		}()
+	}
 
 	// Accept loop goroutine.
 	go func() {

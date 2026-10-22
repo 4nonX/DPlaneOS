@@ -332,6 +332,21 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 	src, dst, opts := target.Source, target.Destination, target.Options
 	scheduleID := target.ID
 
+	// Marked running before the job starts: a job that finishes at once
+	// writes its result, which a later "running" would overwrite.
+	if err := atomicModifyRsyncSchedules(func(all []RsyncSchedule) ([]RsyncSchedule, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].LastJobID = ""
+				all[i].LastStatus = "running"
+				break
+			}
+		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: RunRsyncScheduleNow: failed to persist running status for %s: %v", id, err)
+	}
+
 	jobID := jobs.Start("rsync_scheduled", func(j *jobs.Job) {
 		var output []byte
 		args, err := rsyncArgs(opts, src, dst)
@@ -365,15 +380,14 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 
 	if err := atomicModifyRsyncSchedules(func(all []RsyncSchedule) ([]RsyncSchedule, error) {
 		for i := range all {
-			if all[i].ID == id {
+			if all[i].ID == id && all[i].LastJobID == "" {
 				all[i].LastJobID = jobID
-				all[i].LastStatus = "running"
 				break
 			}
 		}
 		return all, nil
 	}); err != nil {
-		log.Printf("WARN: RunRsyncScheduleNow: failed to persist running status for %s: %v", id, err)
+		log.Printf("WARN: RunRsyncScheduleNow: failed to persist job ID for %s: %v", id, err)
 	}
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_run_now", map[string]any{"id": id})

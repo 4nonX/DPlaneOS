@@ -138,7 +138,9 @@ func Plan(r RolloutView, targets []Target, now time.Time) Step {
 		st.Finish = true
 		return st
 	}
-	if r.AutoAdvance && !now.Before(r.WaveDoneAt.Add(time.Duration(r.SoakSecs)*time.Second)) {
+	// No soak: advance at once (a wall-clock comparison could miss by a step
+	// of the clock).
+	if r.AutoAdvance && (r.SoakSecs <= 0 || !now.Before(r.WaveDoneAt.Add(time.Duration(r.SoakSecs)*time.Second))) {
 		st.Advance = true
 	}
 	return st

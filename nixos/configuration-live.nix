@@ -69,9 +69,7 @@
   boot.zfs.package = lib.mkDefault pkgs.zfs;
   boot.supportedFilesystems = [ "zfs" "vfat" "ext4" ];
 
-  # ARC cache: 17GB (same as installed, for consistent behavior)
-  # Use mkDefault so applianceConfig can set this without conflict
-  boot.kernelParams = lib.mkDefault [ "zfs.zfs_arc_max=17179869184" ];
+  # ARC cache: 16 GiB, the same as installed; set by applianceConfig (flake.nix).
 
   # ── Network configuration (live boot requires DHCP for automatic connectivity) ────────────────────────────
   networking.useNetworkd = true;

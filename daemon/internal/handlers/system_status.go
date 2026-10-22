@@ -648,7 +648,8 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	}
 
 	log.Printf("SETUP: admin credentials configured for user '%s'", req.Username)
-	respondJSON(w, http.StatusOK, map[string]any{
+	setSMBPassword(h.db, req.Username, req.Password)
+	respondJSON(w, http.StatusOK, withWarning(map[string]any{
 		"success": true, "message": "Admin credentials configured",
-	})
+	}, syncShareIdentities(h.db)))
 }

@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -19,8 +17,10 @@ import (
 
 // ADJoinRequest represents the request to join an AD domain
 type ADJoinRequest struct {
-	Username         string `json:"username"`
-	Password         []byte `json:"password"` // transient, zeroed after use
+	Username string `json:"username"`
+	// Password is a JSON string (the web UI sends one). As []byte it had to
+	// be base64, so every join failed with "Invalid request body".
+	Password         string `json:"password"`
 	Domain           string `json:"domain"`
 	DomainController string `json:"domain_controller"`
 }
@@ -32,30 +32,29 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, ldapResp{Error: "Invalid request body"})
 		return
 	}
-	defer func() {
-		// Security: zero out password in memory
-		for i := range req.Password {
-			req.Password[i] = 0
-		}
-	}()
-
 	if req.Username == "" || len(req.Password) == 0 || req.Domain == "" || req.DomainController == "" {
 		writeJSON(w, 400, ldapResp{Error: "Username, password, domain, and domain controller are required"})
 		return
 	}
 
-	// 1. NTP Pre-check
-	if err := h.checkNTP(r.Context()); err != nil {
-		ue := SanitizeDomainJoin(err, "NTP")
-		if ue.Code == "" {
-			ue = userErr("System clock may not be synchronized. Kerberos requires clocks within 5 minutes of the domain controller.", "ntp_skew", "Enable NTP under Settings → System → Time.")
-		}
-		writeJSON(w, 412, ldapResp{Error: ue.Error, Code: ue.Code, Guide: ue.Guide})
+	// 1. Clock: Kerberos needs it within 5 minutes of the DC's.
+	if err := checkClockSkew(req.DomainController); err != nil {
+		writeJSON(w, 412, ldapResp{Error: err.Error(), Code: "ntp_skew",
+			Guide: "Synchronise the clock (Settings → System → Time; the domain controller is a good NTP server) and check that the domain controller is reachable."})
 		return
 	}
 
-	// 2. Perform Join via 'net ads join'
-	args := []string{"ads", "join", "-U", req.Username, "-W", req.Domain, "-S", req.DomainController}
+	// 2. Samba must already be an AD member of this realm (applied AD
+	// configuration); -W is the NetBIOS workgroup (the DNS domain was passed).
+	workgroup, err := adJoinReady(req.Domain, runTestparm)
+	if err != nil {
+		writeJSON(w, 409, ldapResp{Error: err.Error(), Code: "samba_not_configured",
+			Guide: "Directory Services: save the Active Directory configuration, then apply the pending NixOS changes (Settings → NixOS)."})
+		return
+	}
+
+	// 3. Perform Join via 'net ads join'
+	args := []string{"ads", "join", "-U", req.Username, "-W", workgroup, "-S", req.DomainController}
 	if err := security.ValidateCommand("net_ads_join", args); err != nil {
 		writeJSON(w, 403, ldapResp{Error: "The domain join request was blocked by the security validator.", Code: "security_validation"})
 		return
@@ -77,7 +76,19 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 403, ldapResp{Error: "The winbind verification request was blocked by the security validator.", Code: "security_validation"})
 		return
 	}
-	out, err := cmdutil.Run(30*time.Second, "wbinfo_test", "-t")
+	// winbindd exits at startup while the host is not joined ("Could not
+	// fetch our SID - did we join?"): start it now, then give it a moment to
+	// contact the DC.
+	if out, err := cmdutil.Run(60*time.Second, "systemctl_restart_winbindd", "restart", "samba-winbindd.service"); err != nil {
+		log.Printf("ad_join: restart winbind after join to %s: %v %s", req.Domain, err, out)
+	}
+	var out []byte
+	for i := 0; i < 10; i++ {
+		if out, err = cmdutil.Run(30*time.Second, "wbinfo_test", "-t"); err == nil || strings.Contains(err.Error(), "deadline exceeded") {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "deadline exceeded") {
 			writeJSON(w, 202, ldapResp{
@@ -123,7 +134,7 @@ func (h *LDAPHandler) GetDirectoryStatus(w http.ResponseWriter, r *http.Request)
 	var providerType string
 	err := h.db.QueryRow("SELECT domain_joined, domain_joined_at, realm, provider_type FROM ldap_config WHERE id = 1").
 		Scan(&joined, &joinedAt, &realm, &providerType)
-	
+
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Database error: " + err.Error()})
 		return
@@ -143,30 +154,12 @@ func (h *LDAPHandler) GetDirectoryStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp := map[string]any{
-		"provider_type":     providerType,
-		"domain_joined":     joined,
-		"domain_joined_at":  joinedAt,
-		"realm":             realm,
-		"net_ads_info":      liveStatus,
+		"provider_type":    providerType,
+		"domain_joined":    joined,
+		"domain_joined_at": joinedAt,
+		"realm":            realm,
+		"net_ads_info":     liveStatus,
 	}
 
 	writeJSON(w, 200, ldapResp{Success: true, Data: resp})
-}
-
-func (h *LDAPHandler) checkNTP(_ context.Context) error {
-	// timedatectl show --property=NTPSynchronized
-	args := []string{"show", "--property=NTPSynchronized"}
-	if err := security.ValidateCommand("timedatectl_show", args); err != nil {
-		return fmt.Errorf("security validation failed: %v", err)
-	}
-	out, err := cmdutil.Run(cmdutil.TimeoutFast, "timedatectl_show", "show", "--property=NTPSynchronized")
-	if err != nil {
-		return fmt.Errorf("failed to check NTP status: %v", err)
-	}
-
-	if !strings.Contains(string(out), "NTPSynchronized=yes") {
-		return fmt.Errorf("system clock is not NTP synchronized (required for Kerberos/AD)")
-	}
-
-	return nil
 }

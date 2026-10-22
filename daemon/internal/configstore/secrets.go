@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"dplaned/internal/gitops"
 	"dplaned/internal/secrets"
+	"dplaned/internal/shareusers"
 )
 
 // Secret material between paired nodes (Design 0001 section 5.9).
@@ -47,7 +49,7 @@ type Material map[string]string
 // credentialFields of a user, in fingerprint order.
 var credentialFields = []string{"password_hash", "must_change_password", "totp_enabled",
 	"scram_salt", "scram_iterations", "scram_stored_key", "scram_server_key",
-	"totp_secret", "totp_secret_enabled", "totp_backup_codes"}
+	"totp_secret", "totp_secret_enabled", "totp_backup_codes", "smb_nt_hash"}
 
 // credentialsFingerprint is the fingerprint of a user's credentials.
 func credentialsFingerprint(m Material) string {
@@ -70,15 +72,24 @@ func ReadMaterial(db *sql.DB, kind, key string) (Material, error) {
 	case KindUser:
 		m := Material{}
 		var mustChange, totpEnabled, iterations int
-		var hash, salt, stored, server string
+		var hash, salt, stored, server, ntSealed string
 		err := db.QueryRow(`SELECT password_hash, must_change_password, totp_enabled, scram_salt, scram_iterations,
-			scram_stored_key, scram_server_key FROM users WHERE username = $1`, key).
-			Scan(&hash, &mustChange, &totpEnabled, &salt, &iterations, &stored, &server)
+			scram_stored_key, scram_server_key, smb_nt_hash FROM users WHERE username = $1`, key).
+			Scan(&hash, &mustChange, &totpEnabled, &salt, &iterations, &stored, &server, &ntSealed)
 		if err != nil {
 			return nil, err
 		}
 		m["password_hash"], m["must_change_password"], m["totp_enabled"] = hash, strconv.Itoa(mustChange), strconv.Itoa(totpEnabled)
 		m["scram_salt"], m["scram_iterations"], m["scram_stored_key"], m["scram_server_key"] = salt, strconv.Itoa(iterations), stored, server
+		// The SMB (NT) hash travels opened, like the TOTP secret, and is sealed
+		// again with the receiving node's key.
+		if ntSealed != "" {
+			plain, err := secrets.Open(ntSealed)
+			if err != nil {
+				return nil, fmt.Errorf("opening the SMB password of %s: %w", key, err)
+			}
+			m["smb_nt_hash"] = plain
+		}
 		var sealed, codes string
 		var enabled int
 		err = db.QueryRow(`SELECT t.secret, t.enabled, t.backup_codes FROM totp_secrets t JOIN users u ON u.id = t.user_id
@@ -226,12 +237,19 @@ func writeMaterial(db *sql.DB, r Resource, m Material) error {
 			return err
 		}
 		defer tx.Rollback()
+		ntSealed := ""
+		if m["smb_nt_hash"] != "" {
+			var err error
+			if ntSealed, err = secrets.Seal(m["smb_nt_hash"]); err != nil {
+				return err
+			}
+		}
 		var uid int64
 		if err := tx.QueryRow(`UPDATE users SET password_hash = $2, must_change_password = $3, totp_enabled = $4,
-			scram_salt = $5, scram_iterations = $6, scram_stored_key = $7, scram_server_key = $8, updated_at = NOW()
+			scram_salt = $5, scram_iterations = $6, scram_stored_key = $7, scram_server_key = $8, smb_nt_hash = $9, updated_at = NOW()
 			WHERE username = $1 RETURNING id`, r.Key, m["password_hash"], atoi(m["must_change_password"]),
 			atoi(m["totp_enabled"]), m["scram_salt"], atoi(m["scram_iterations"]), m["scram_stored_key"],
-			m["scram_server_key"]).Scan(&uid); err != nil {
+			m["scram_server_key"], ntSealed).Scan(&uid); err != nil {
 			return fmt.Errorf("storing the credentials of %s: %w", r.Key, err)
 		}
 		if m["totp_secret"] == "" {
@@ -249,7 +267,13 @@ func writeMaterial(db *sql.DB, r Resource, m Material) error {
 				return err
 			}
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if err := shareusers.Sync(db); err != nil {
+			log.Printf("[configstore] file sharing accounts: %v", err)
+		}
+		return nil
 	case KindLDAP:
 		sealed := ""
 		if m["bind_password"] != "" {

@@ -11,7 +11,8 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **Block volumes:** ZVols for iSCSI and NVMe-oF backing
 - **ACL manager:** POSIX access control per dataset or path (OpenZFS on Linux has no native NFSv4 ACLs; the NFSv4 ACL API needs nfs4-acl-tools and applies to NFS client mounts)
 - **ZFS delegation:** fine-grained per-user/per-dataset permission grants (`zfs allow`)
-- **Snapshot scheduler:** independent retention tiers: 15 min, hourly, daily, weekly, monthly
+- **Snapshot scheduler:** independent tiers every 15 min, hourly, daily, weekly, monthly, each with its own prefix; optionally recursive (child datasets in one atomic snapshot); retention by count and by age; replication bases are never pruned
+- **Retention policies:** keep the newest snapshot of each of the last N hours, days, weeks, months and years, per dataset; only prefixed snapshots, never manual ones
 - **Snapshot rollback:** picker for any historical restore point, destructive-action warning
 - **Pool health:** real-time status, degraded/faulted vdev banner, one-click scrub
 - **ZED events:** scrub, resilver, trim, data loss, checksum and I/O errors dispatched live to the UI
@@ -21,10 +22,11 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Sharing
 
-- **SMB / Samba:** per-share user restrictions, Time Machine support, active-session viewer and disconnect
-- **NFS:** per-export client rules, dynamic `exportfs` reload
-- **iSCSI:** kernel `nvmet` targets via configfs
-- **NVMe-oF:** NVMe over TCP with per-initiator host NQN allowlist
+- **Accounts:** every local user and group is also a system account and group (UID/GID from 3000) with a Samba password, so users log in to SMB with their DPlaneOS password and NFS sees the same owners; recreated at startup (OTA-safe)
+- **SMB / Samba:** per-share user restrictions, folder access for the share's users in one step (inherited POSIX ACL), guest shares, Time Machine support, ZFS snapshots as Windows Previous Versions (also child datasets), Windows network discovery (WS-Discovery), active-session viewer and disconnect
+- **NFS:** NFSv4.0–4.2 (NFSv3 optional), per-export client rules checked against the exports(5) options, child datasets visible (`crossmnt`), dynamic `exportfs` reload; the exports are rewritten at startup, so they survive OTA updates
+- **iSCSI:** kernel LIO targets via `targetcli`; the configuration is saved under `/etc/target` (persisted) and restored at boot
+- **NVMe-oF:** NVMe over TCP (kernel `nvmet` via configfs) with per-initiator host NQN allowlist; exports restored at boot
 - **FTP / FTPS:** vsftpd with installed-state detection; form locked when not installed
 - **File share links:** time-limited browser-downloadable links, no authentication required
 - **S3 object storage:** embedded MinIO with one-click console access
@@ -41,7 +43,7 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Data Protection
 
-- **ZFS replication:** incremental send/receive over SSH, configurable schedule and rate limit
+- **ZFS replication:** incremental send/receive over SSH from the newest snapshot both sides share (matched by GUID), configurable schedule and rate limit, resumable transfers; encrypted datasets are sent raw (the peer never needs the key); the copy is received read-only and unmounted and keeps the snapshots the source has pruned; without a common snapshot a run stops instead of overwriting the peer's copy, unless "replicate from scratch" is enabled
 - **Backup:** rsync-based backup tasks
 - **Cloud sync:** S3, Backblaze B2, Google Drive, Azure, Dropbox, and any rclone-supported target
 - **Cold tier:** FUSE-mounted object storage for archive datasets
@@ -50,7 +52,11 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Containers
 
-- **Docker Compose:** deploy, update, start, stop, and remove stacks from the UI
+- **Docker Compose:** deploy, update, start, stop, and remove stacks from the UI; edits checked with `docker compose config` before they replace the running file; one operation per stack at a time
+- **Updates with rollback:** pull, recreate, wait until every service is up, otherwise back to the previous images; the stack's ZFS datasets are snapshotted first (optional data rollback)
+- **Update detection and auto-update:** registry digests checked every 6 hours without pulling; optional per-stack auto-update that skips an image that failed before
+- **Git-backed stacks:** deploy from a repository on new commits (polling or signed GitHub/Gitea/GitLab webhooks), each as its own compose project
+- **Sandboxes:** ZFS clones of a dataset for experiments, removed with their base snapshot
 - **Live log streaming:** real-time container logs via SSE with level filter and line limit
 - **GPU passthrough:** automatic device injection for GPU workloads
 
@@ -62,7 +68,7 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **Plan before apply:** every reconcile produces a typed plan (CREATE / MODIFY / DELETE / BLOCKED / MANUAL) before any change is made
 - **Drift detection:** background 5-minute loop; UI banner on any deviation from declared state
 - **Capture:** generate `state.yaml` from the live system; never commits automatically
-- **BLOCKED approval:** destructive operations require explicit per-item sign-off with a written reason
+- **BLOCKED approval:** risky operations (such as removing a share with connected clients) require explicit per-item sign-off with a written reason; a dataset or pool that holds anything (files, snapshots, child datasets) is never destroyed, approved or not: Git holds the shape of the storage, never its data
 - **Auto-apply:** webhook (HMAC-verified) or polling trigger on Git push
 - **Rollback:** `git revert` + apply restores any previous state
 
@@ -70,10 +76,11 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Networking
 
-- **Static IP:** per-interface CIDR, gateway, and DNS configuration
-- **Bonding:** LACP (802.3ad) and active-backup modes
-- **VLANs:** tagged sub-interfaces with configurable VID
-- **Firewall:** nftables-backed TCP/UDP allowlist managed from the UI
+- **Interfaces:** DHCP or static address and gateway per interface, static routes, global DNS servers and search domains (systemd-networkd and resolved, applied without a rebuild; fresh installs use DHCP on every Ethernet port)
+- **Safe changes:** every network and firewall change applies at once and is reverted after 90 seconds unless confirmed, also across a daemon restart or reboot
+- **Bonding:** all kernel modes (LACP, active-backup, …) with link monitoring; a bond takes over its member's address
+- **VLANs:** tagged sub-interfaces on interfaces or bonds; the parent keeps its address
+- **Firewall:** ordered allow/deny rules by port, protocol and source, applied at once on top of the NixOS firewall (deny also restricts ports the system opens); the ports the configuration opens are shown
 - **mDNS:** auto-discovery as `dplaneos.local`
 
 ---
@@ -95,9 +102,9 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **CSRF protection:** custom header + double-submit token on all mutations
 - **TLS certificates:** ACME / Let's Encrypt automation or manual PEM upload
 - **Exec allowlist:** every subprocess validated against predefined binary + argument grammars; no shell string, no expansion
-- **libzfs cgo:** ZFS operations bypass the subprocess layer entirely in the production binary
-- **Rate limiting:** 100 requests / minute / IP, in-process before any handler runs
-- **Systemd hardening:** `ProtectSystem=strict`, `NoNewPrivileges`, `MemoryMax=1G` on the daemon
+- **libzfs cgo:** pool and dataset management goes through libzfs in the production binary; send/receive and some listings still run the allowlisted `zfs` command
+- **Rate limiting:** 100 requests / minute / IP, in-process after session validation and before the handler; the chunks of an authenticated file upload are not counted
+- **Systemd hardening:** `NoNewPrivileges`, a bounded capability set, `MemoryMax=1G` for the daemon and its jobs (`services.dplaneos.memoryMax`; `nixos-rebuild` runs in its own unit). No `ProtectSystem`: a mount namespace would hide the ZFS mounts the daemon makes from Samba, NFS and the host
 - **SSE ticket auth:** one-time 30-second tokens for `EventSource` connections; session IDs never appear in any URL
 
 ---
@@ -141,11 +148,11 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Platform
 
-- **NixOS 26.05:** Linux 6.6 LTS kernel, OpenZFS 2.3 LTS
+- **NixOS 26.05:** Linux 6.12 LTS kernel, OpenZFS 2.3 or later (as packaged by nixpkgs)
 - **Declarative OS:** entire system described in `flake.nix`; `nixos-rebuild switch` converges to spec
 - **Impermanence:** ephemeral root filesystem; all runtime state on a dedicated `/persist` partition
 - **Offline installer ISO:** full NAS closure baked into squashfs; zero internet required at install time
 - **A/B boot slots:** disko-managed partition layout; safe to reinstall without touching data disks
-- **Static binary:** Go daemon built with musl libc; no glibc runtime dependencies
+- **Daemon builds:** production uses a glibc build linked against libzfs (cgo); a static, CGO-free build serves CI and non-NixOS installs
 - **Plugin system:** third-party navigation and handler extensions via the plugin API
 - **AGPL-3.0:** free to use, modify, and distribute

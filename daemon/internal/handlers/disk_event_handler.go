@@ -38,6 +38,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -122,6 +123,14 @@ func handleDiskAdded(devName string, req diskEventRequest) {
 
 	poolName, health := getPoolForDisk(byID, devName, zpoolStatus)
 
+	// Which pool this disk belonged to when it was last seen here. Read
+	// before the upsert below, which records the current (for a pool that is
+	// not imported: empty) pool name.
+	lastPool := ""
+	if registryDB != nil && byID != "" {
+		lastPool = lastKnownPool(registryDB, byID)
+	}
+
 	diskInfo := DiskInfo{
 		Name:       devName,
 		DevPath:    "/dev/" + devName,
@@ -151,84 +160,88 @@ func handleDiskAdded(devName string, req diskEventRequest) {
 	go func() {
 		// Small delay - give the kernel time to fully register the device.
 		time.Sleep(2 * time.Second)
-		attemptPoolImport(diskInfo)
+		attemptPoolImport(diskInfo, lastPool)
 		checkAndSuggestReplacement(diskInfo)
 	}()
 }
 
-// attemptPoolImport checks whether any FAULTED/UNAVAIL pool or any importable
-// pool matches the newly-added disk, and if so attempts a zpool import.
-func attemptPoolImport(disk DiskInfo) {
-	// Check for FAULTED or UNAVAIL pools in the current status.
+// attemptPoolImport brings back the pool of a disk that returns:
+//   - a member of an imported pool (removed and plugged back in) is put back
+//     online, in case ZED has not done it already;
+//   - an exported pool is imported when `zpool import` lists the new disk as
+//     one of its members and the registry recorded the disk in that very pool
+//     here before. A disk from another system never imports its pool.
+func attemptPoolImport(disk DiskInfo, lastPool string) {
+	if disk.ByIDPath == "" {
+		broadcastPoolHealthChanged()
+		return
+	}
+	base := filepath.Base(disk.ByIDPath)
+
 	statusOut, err := runWithTimeout(30*time.Second, "zpool", "status", "-P", "-v")
 	if err != nil {
 		log.Printf("DISK EVENT: zpool status failed during import check: %v", err)
 		return
 	}
-
-	// Identify pools with FAULTED/UNAVAIL state.
-	faultedPools := parseFaultedPools(string(statusOut))
-
-	// Also check what pools are importable from by-id.
-	importOut, _ := runWithTimeout(30*time.Second, "zpool", "import", "-d", "/dev/disk/by-id")
-	importablePools := parseImportablePools(string(importOut))
-
-	// For each importable pool, check whether we have a registry record tying
-	// this disk's serial/by-id to a known pool.
-	for poolName, poolGUID := range importablePools {
-		alreadyFaulted := false
-		for _, fp := range faultedPools {
-			if fp == poolName {
-				alreadyFaulted = true
-				break
-			}
-		}
-
-		shouldImport := alreadyFaulted
-		if !shouldImport && registryDB != nil {
-			// Check if the registry has a record of this disk belonging to poolName.
-			if disk.Serial != "" {
-				rec, _ := GetDiskBySerial(registryDB, disk.Serial)
-				if rec != nil && rec.PoolName == poolName {
-					shouldImport = true
-				}
-			}
-			if !shouldImport && disk.ByIDPath != "" {
-				rec, _ := GetDiskByByID(registryDB, disk.ByIDPath)
-				if rec != nil && rec.PoolName == poolName {
-					shouldImport = true
-				}
-			}
-		}
-
-		if !shouldImport {
+	for _, fv := range findFaultedVdevs(string(statusOut)) {
+		if !vdevIsDisk(filepath.Base(fv.VdevPath), base) && (fv.Was == "" || !vdevIsDisk(filepath.Base(fv.Was), base)) {
 			continue
 		}
-
-		// A pool of a shared storage group is imported by its owner only.
-		if ok, why := importAllowed(poolGUID, poolName); !ok {
-			log.Printf("DISK EVENT: not importing pool %q: %s", poolName, why)
-			continue
+		log.Printf("DISK EVENT: /dev/%s is member %s of pool %q (%s): bringing it online", disk.Name, fv.VdevPath, fv.Pool, fv.State)
+		if out, err := cmdutil.RunMedium("zpool_online", "online", fv.Pool, fv.VdevPath); err != nil {
+			log.Printf("DISK EVENT: zpool online %s %s: %v: %s", fv.Pool, fv.VdevPath, err, strings.TrimSpace(string(out)))
 		}
-
-		log.Printf("DISK EVENT: attempting import of pool %q (GUID %s, disk /dev/%s added)", poolName, poolGUID, disk.Name)
-		// Import by GUID is much safer than name-based import as names can collide or change.
-		// The GUID is positional: `zpool import` has no -g flag.
-		importResult, importErr := cmdutil.Run(2*time.Minute, "zpool_import", "import", "-d", "/dev/disk/by-id", poolGUID)
-		if importErr != nil {
-			log.Printf("DISK EVENT: pool import %q failed: %v - %s", poolName, importErr, strings.TrimSpace(string(importResult)))
-		} else {
-			log.Printf("DISK EVENT: pool %q imported successfully", poolName)
-		}
-
-		// 5. Recheck pool health and broadcast poolHealthChanged.
 		broadcastPoolHealthChanged()
 		return
 	}
 
-	// Even if no import was attempted, broadcast a health refresh so the UI
-	// can pick up any state change caused by the disk appearing.
+	importOut, _ := runWithTimeout(30*time.Second, "zpool", "import", "-d", "/dev/disk/by-id")
+	poolName, poolGUID, ok := importDecision(string(importOut), base, lastPool)
+	if !ok {
+		broadcastPoolHealthChanged()
+		return
+	}
+	// A pool of a shared storage group is imported by its owner only.
+	if ok, why := importAllowed(poolGUID, poolName); !ok {
+		log.Printf("DISK EVENT: not importing pool %q: %s", poolName, why)
+		broadcastPoolHealthChanged()
+		return
+	}
+	log.Printf("DISK EVENT: attempting import of pool %q (GUID %s, disk /dev/%s added)", poolName, poolGUID, disk.Name)
+	// Import by GUID: names can collide. The GUID is positional (no -g flag).
+	importResult, importErr := cmdutil.Run(2*time.Minute, "zpool_import", "import", "-d", "/dev/disk/by-id", poolGUID)
+	if importErr != nil {
+		log.Printf("DISK EVENT: pool import %q failed: %v - %s", poolName, importErr, strings.TrimSpace(string(importResult)))
+	} else {
+		log.Printf("DISK EVENT: pool %q imported successfully", poolName)
+	}
 	broadcastPoolHealthChanged()
+}
+
+// importDecision picks the exported pool to import for a disk that appeared:
+// the importable pool that lists the disk (by-id base name) as a member and
+// is the pool the registry last saw the disk in. ok is false otherwise.
+func importDecision(importOutput, diskByIDBase, lastPool string) (name, guid string, ok bool) {
+	if lastPool == "" || diskByIDBase == "" {
+		return "", "", false
+	}
+	for _, p := range parseImportablePools(importOutput) {
+		if p.name != lastPool {
+			continue
+		}
+		for _, m := range p.members {
+			if vdevIsDisk(filepath.Base(m), diskByIDBase) {
+				return p.name, p.guid, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// vdevIsDisk reports whether a vdev name in zpool output is the disk with
+// this by-id base name or one of its partitions (ZFS partitions whole disks).
+func vdevIsDisk(vdev, diskByIDBase string) bool {
+	return vdev == diskByIDBase || strings.HasPrefix(vdev, diskByIDBase+"-part")
 }
 
 // FaultedVdev describes a single faulted vdev extracted from zpool status output.
@@ -236,6 +249,9 @@ type FaultedVdev struct {
 	Pool     string `json:"pool"`
 	VdevPath string `json:"path"`
 	State    string `json:"state"`
+	// Was is the device path of a missing vdev that zpool lists by GUID
+	// ("12345  UNAVAIL  0 0 0  was /dev/disk/by-id/...").
+	Was string `json:"was,omitempty"`
 }
 
 // findFaultedVdevs parses `zpool status -P -v` output and returns all vdevs
@@ -296,11 +312,18 @@ func findFaultedVdevs(poolStatus string) []FaultedVdev {
 					!strings.HasPrefix(vdevName, "raidz") &&
 					!strings.HasPrefix(vdevName, "spare") &&
 					vdevName != currentPool) {
-				result = append(result, FaultedVdev{
+				fv := FaultedVdev{
 					Pool:     currentPool,
 					VdevPath: vdevName,
 					State:    state,
-				})
+				}
+				for i := 2; i+1 < len(fields); i++ {
+					if fields[i] == "was" {
+						fv.Was = fields[i+1]
+						break
+					}
+				}
+				result = append(result, fv)
 			}
 		}
 	}
@@ -424,51 +447,52 @@ func broadcastPoolHealthChanged() { BroadcastPoolHealthChanged() }
 
 // ── zpool output parsers ──────────────────────────────────────────────────────
 
-// parseFaultedPools returns the names of pools whose state line contains
-// FAULTED, UNAVAIL, or DEGRADED.
-func parseFaultedPools(statusOutput string) []string {
-	var pools []string
-	currentPool := ""
-	for _, line := range strings.Split(statusOutput, "\n") {
+// importablePool is one pool listed by `zpool import`.
+type importablePool struct {
+	name, guid string
+	members    []string // vdev names in its config (by-id base names with -d /dev/disk/by-id)
+}
+
+// parseImportablePools parses the output of `zpool import -d /dev/disk/by-id`:
+// each pool's name, GUID and the devices of its config section.
+func parseImportablePools(importOutput string) []importablePool {
+	var pools []importablePool
+	inConfig := false
+	for _, line := range strings.Split(importOutput, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "pool:") {
-			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
-			continue
-		}
-		if currentPool == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "state:") {
-			state := strings.TrimSpace(strings.TrimPrefix(trimmed, "state:"))
-			if state == "FAULTED" || state == "UNAVAIL" || state == "DEGRADED" {
-				pools = append(pools, currentPool)
+		fields := strings.Fields(trimmed)
+		switch {
+		case strings.HasPrefix(trimmed, "pool:"):
+			pools = append(pools, importablePool{name: strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))})
+			inConfig = false
+		case len(pools) == 0:
+		case strings.HasPrefix(trimmed, "id:"):
+			pools[len(pools)-1].guid = strings.TrimSpace(strings.TrimPrefix(trimmed, "id:"))
+		case strings.HasPrefix(trimmed, "config:"):
+			inConfig = true
+		case inConfig && len(fields) >= 2:
+			p := &pools[len(pools)-1]
+			if fields[0] != p.name && !isVdevGroupName(fields[0]) {
+				p.members = append(p.members, fields[0])
 			}
-			currentPool = "" // reset - one state: line per pool section
 		}
 	}
 	return pools
 }
 
-// parseImportablePools parses the output of `zpool import -d /dev/disk/by-id`
-// and returns a map of pool name → pool guid for importable pools.
-func parseImportablePools(importOutput string) map[string]string {
-	result := make(map[string]string)
-	currentPool := ""
-	for _, line := range strings.Split(importOutput, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "pool:") {
-			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
-			continue
-		}
-		if currentPool != "" && strings.HasPrefix(trimmed, "id:") {
-			guid := strings.TrimSpace(strings.TrimPrefix(trimmed, "id:"))
-			if guid != "" {
-				result[currentPool] = guid
-			}
-			currentPool = ""
+// isVdevGroupName reports whether a zpool config entry is a grouping (mirror-0,
+// raidz2-1, logs, ...) rather than a device.
+func isVdevGroupName(n string) bool {
+	for _, g := range []string{"mirror", "raidz", "draid", "spare", "replacing"} {
+		if strings.HasPrefix(n, g) {
+			return true
 		}
 	}
-	return result
+	switch n {
+	case "logs", "cache", "spares", "special", "dedup":
+		return true
+	}
+	return false
 }
 
 // parsePoolHealthSummary returns a map of poolName → state string extracted

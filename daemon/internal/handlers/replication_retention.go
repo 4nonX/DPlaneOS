@@ -6,14 +6,14 @@
 // backup. Retention policies define how many snapshots to keep per time bucket
 // (hourly, daily, weekly, monthly) for a given dataset.
 //
-// A DPlaneOS snapshot name is expected to follow the convention:
+// Only snapshots whose names start with the policy Prefix are pruned, so manual
+// snapshots (created ad hoc from the UI or CLI) are never touched. A policy
+// without a prefix prunes nothing. The snapshot a replication schedule uses as
+// its incremental base is never pruned either: losing it forces a full resend.
 //
-//	<dataset>@auto-YYYY-MM-DDTHH:MM:SS  (ISO-8601 suffix)
-//	<dataset>@<prefix>-YYYY-MM-DD       (date-only suffix)
-//	<dataset>@<anything>                (manual - never pruned by this engine)
-//
-// Only snapshots whose names start with the policy Prefix are pruned.
-// Manual snapshots (created ad hoc from the UI or CLI) are never touched.
+// Keep counts follow the usual convention (sanoid, zettarepl): keep_daily = 7
+// keeps the newest snapshot of each of the 7 most recent days that have one.
+// The tiers add up; a snapshot kept by any tier is kept.
 
 package handlers
 
@@ -29,17 +29,18 @@ import (
 )
 
 // SnapshotRetentionPolicy describes how many snapshots to keep per time bucket
-// for a given dataset. Zero values mean "keep all" for that bucket.
+// for a dataset and its children. A zero count leaves that tier unused; with
+// every count zero the policy keeps everything.
 type SnapshotRetentionPolicy struct {
 	ID      string `json:"id"`
-	Dataset string `json:"dataset"` // exact dataset name or prefix with trailing /
+	Dataset string `json:"dataset"` // the dataset; its children are covered too, each on its own
 	Prefix  string `json:"prefix"`  // only prune snapshots whose @name starts with this prefix
-	// How many of each bucket to retain. 0 = unlimited.
-	KeepHourly  int `json:"keep_hourly"`
-	KeepDaily   int `json:"keep_daily"`
-	KeepWeekly  int `json:"keep_weekly"`
-	KeepMonthly int `json:"keep_monthly"`
-	KeepYearly  int `json:"keep_yearly"`
+	// How many buckets of each tier to retain the newest snapshot of. 0 = tier unused.
+	KeepHourly  int  `json:"keep_hourly"`
+	KeepDaily   int  `json:"keep_daily"`
+	KeepWeekly  int  `json:"keep_weekly"`
+	KeepMonthly int  `json:"keep_monthly"`
+	KeepYearly  int  `json:"keep_yearly"`
 	Enabled     bool `json:"enabled"`
 }
 
@@ -89,9 +90,16 @@ func HandleRetentionPolicies(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		if !isValidDataset(req.Policy.Dataset) {
-			respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
-			return
+		// A delete names the policy by ID only (the web UI sends nothing else).
+		if req.Action != "delete" {
+			if !isValidDataset(req.Policy.Dataset) {
+				respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
+				return
+			}
+			if strings.TrimSpace(req.Policy.Prefix) == "" {
+				respondErrorSimple(w, "A prefix is required (e.g. auto-): without one the policy would prune manual snapshots", http.StatusBadRequest)
+				return
+			}
 		}
 		policies, err := loadRetentionPolicies()
 		if err != nil {
@@ -144,127 +152,124 @@ type retSnap struct {
 	created time.Time
 }
 
-// ApplyRetentionPolicy prunes snapshots for one dataset according to the given policy.
-// It only touches snapshots whose @name starts with policy.Prefix.
-// Returns a list of pruned snapshot names and any errors encountered.
+// ApplyRetentionPolicy prunes the snapshots of dataset and its children
+// according to the given policy, each dataset on its own: a child's snapshots
+// never take a bucket from the parent's. It only touches snapshots whose @name
+// starts with policy.Prefix and never a replication base (see
+// replicationBaseSnapshots). Returns the names of the pruned snapshots.
 func ApplyRetentionPolicy(dataset string, policy SnapshotRetentionPolicy) ([]string, error) {
+	if strings.TrimSpace(policy.Prefix) == "" {
+		return nil, fmt.Errorf("policy %s has no prefix: nothing is pruned", policy.ID)
+	}
 	out, err := executeCommandWithTimeout(TimeoutFast, "ret_zfs_list_snapshots",
-		[]string{"list", "-H", "-t", "snapshot", "-o", "name,creation", "-r", "-s", "creation", dataset})
+		[]string{"list", "-H", "-p", "-t", "snapshot", "-o", "name,creation", "-r", "-s", "creation", dataset})
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots: %w", err)
 	}
 
-	var snaps []retSnap
-
+	byDataset := map[string][]retSnap{}
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if line == "" {
-			continue
-		}
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		name := fields[0]
-		// Only consider snapshots matching the prefix.
-		atIdx := strings.Index(name, "@")
-		if atIdx < 0 {
+		ds, snapName, ok := strings.Cut(fields[0], "@")
+		if !ok || !strings.HasPrefix(snapName, policy.Prefix) {
 			continue
 		}
-		snapSuffix := name[atIdx+1:]
-		if policy.Prefix != "" && !strings.HasPrefix(snapSuffix, policy.Prefix) {
-			continue
-		}
-		// Parse creation time from ZFS (format: "Mon Jan 2 15:04 2006" or Unix timestamp).
-		// zfs list -o creation with -p returns a Unix timestamp.
 		created, parseErr := parseZFSCreation(fields[1:])
 		if parseErr != nil {
 			continue
 		}
-		snaps = append(snaps, retSnap{name: name, created: created})
+		byDataset[ds] = append(byDataset[ds], retSnap{name: fields[0], created: created})
 	}
 
-	// Sort newest-first so keep logic retains the most recent snapshots.
-	sort.Slice(snaps, func(i, j int) bool {
-		return snaps[i].created.After(snaps[j].created)
-	})
-
-	keep := computeSnapKeepSet(snaps, policy)
+	protected, err := replicationBaseSnapshots()
+	if err != nil {
+		return nil, err
+	}
 	var pruned []string
-	for _, s := range snaps {
-		if keep[s.name] {
-			continue
-		}
-		if _, delErr := executeCommandWithTimeout(TimeoutMedium, "ret_zfs_destroy_snapshot",
-			[]string{"destroy", s.name}); delErr != nil {
-			log.Printf("retention: failed to destroy %s: %v", s.name, delErr)
-		} else {
-			pruned = append(pruned, s.name)
-			log.Printf("retention: pruned %s", s.name)
+	for _, snaps := range byDataset {
+		// Newest first, so the keep logic retains the most recent snapshots.
+		sort.Slice(snaps, func(i, j int) bool {
+			return snaps[i].created.After(snaps[j].created)
+		})
+		keep := computeSnapKeepSet(snaps, policy)
+		for _, s := range snaps {
+			if keep[s.name] || protected[s.name] {
+				continue
+			}
+			if _, delErr := executeCommandWithTimeout(TimeoutMedium, "ret_zfs_destroy_snapshot",
+				[]string{"destroy", s.name}); delErr != nil {
+				log.Printf("retention: failed to destroy %s: %v", s.name, delErr)
+			} else {
+				pruned = append(pruned, s.name)
+				log.Printf("retention: pruned %s", s.name)
+			}
 		}
 	}
 	return pruned, nil
 }
 
-// computeSnapKeepSet returns the set of snapshot names to retain.
-// It applies bucket-based retention: keep the N most recent per bucket.
+// replicationBaseSnapshots returns the snapshots replication schedules use as
+// their incremental base. Pruning one breaks the chain and forces a full send.
+// Without the schedules nothing may be pruned, so a read error is returned.
+func replicationBaseSnapshots() (map[string]bool, error) {
+	schedules, err := loadReplicationSchedules()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read replication schedules, so nothing is pruned: %w", err)
+	}
+	protected := map[string]bool{}
+	for _, s := range schedules {
+		if s.LastReplicatedSnapshot != "" {
+			protected[s.LastReplicatedSnapshot] = true
+		}
+	}
+	return protected, nil
+}
+
+// computeSnapKeepSet returns the set of snapshot names to retain, given
+// snapshots sorted newest first. For each tier with a keep count N, the newest
+// snapshot of each of the N most recent buckets (hours, days, ISO weeks,
+// months, years) that hold a snapshot is kept. With every count zero all
+// snapshots are kept.
 func computeSnapKeepSet(snaps []retSnap, policy SnapshotRetentionPolicy) map[string]bool {
 	keep := map[string]bool{}
+	if policy.KeepHourly == 0 && policy.KeepDaily == 0 &&
+		policy.KeepWeekly == 0 && policy.KeepMonthly == 0 && policy.KeepYearly == 0 {
+		for _, s := range snaps {
+			keep[s.name] = true
+		}
+		return keep
+	}
 
-	type bucketKey struct{ bucket, key string }
-	seen := map[bucketKey]int{}
-
-	for _, s := range snaps {
-		t := s.created
-
-		hourKey := fmt.Sprintf("%04d-%02d-%02dT%02d", t.Year(), t.Month(), t.Day(), t.Hour())
-		dayKey := fmt.Sprintf("%04d-%02d-%02d", t.Year(), t.Month(), t.Day())
-		weekKey := fmt.Sprintf("%04d-W%02d", t.Year(), isoWeek(t))
-		monthKey := fmt.Sprintf("%04d-%02d", t.Year(), t.Month())
-		yearKey := fmt.Sprintf("%04d", t.Year())
-
-		retain := false
-
-		if policy.KeepHourly > 0 {
-			k := bucketKey{"hourly", hourKey}
-			seen[k]++
-			if seen[k] <= policy.KeepHourly {
-				retain = true
+	tiers := []struct {
+		count  int
+		bucket func(time.Time) string
+	}{
+		{policy.KeepHourly, func(t time.Time) string { return t.Format("2006-01-02T15") }},
+		{policy.KeepDaily, func(t time.Time) string { return t.Format("2006-01-02") }},
+		{policy.KeepWeekly, func(t time.Time) string {
+			y, w := t.ISOWeek()
+			return fmt.Sprintf("%04d-W%02d", y, w)
+		}},
+		{policy.KeepMonthly, func(t time.Time) string { return t.Format("2006-01") }},
+		{policy.KeepYearly, func(t time.Time) string { return t.Format("2006") }},
+	}
+	for _, tier := range tiers {
+		if tier.count <= 0 {
+			continue
+		}
+		taken := map[string]bool{}
+		for _, s := range snaps {
+			b := tier.bucket(s.created)
+			if taken[b] {
+				continue // an earlier (newer) snapshot already holds this bucket
 			}
-		}
-		if policy.KeepDaily > 0 {
-			k := bucketKey{"daily", dayKey}
-			seen[k]++
-			if seen[k] <= policy.KeepDaily {
-				retain = true
+			if len(taken) == tier.count {
+				break
 			}
-		}
-		if policy.KeepWeekly > 0 {
-			k := bucketKey{"weekly", weekKey}
-			seen[k]++
-			if seen[k] <= policy.KeepWeekly {
-				retain = true
-			}
-		}
-		if policy.KeepMonthly > 0 {
-			k := bucketKey{"monthly", monthKey}
-			seen[k]++
-			if seen[k] <= policy.KeepMonthly {
-				retain = true
-			}
-		}
-		if policy.KeepYearly > 0 {
-			k := bucketKey{"yearly", yearKey}
-			seen[k]++
-			if seen[k] <= policy.KeepYearly {
-				retain = true
-			}
-		}
-		// If all keep values are 0, retain everything (no limits configured).
-		if policy.KeepHourly == 0 && policy.KeepDaily == 0 &&
-			policy.KeepWeekly == 0 && policy.KeepMonthly == 0 && policy.KeepYearly == 0 {
-			retain = true
-		}
-		if retain {
+			taken[b] = true
 			keep[s.name] = true
 		}
 	}
@@ -315,9 +320,4 @@ func parseZFSCreation(fields []string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("cannot parse creation time: %q", joined)
-}
-
-func isoWeek(t time.Time) int {
-	_, w := t.ISOWeek()
-	return w
 }

@@ -216,6 +216,8 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
   const [hostsAllow, setHostsAllow] = useState(editingShare?.hosts_allow ?? '')
   const [hostsDeny, setHostsDeny] = useState(editingShare?.hosts_deny ?? '')
   const [showAccess, setShowAccess] = useState(!!(editingShare?.hosts_allow || editingShare?.hosts_deny))
+  // New shares: give the users access to the folder (it usually belongs to root).
+  const [grantAccess, setGrantAccess] = useState(!editingShare)
 
   function pickPurpose(p: Purpose) {
     setPurpose(p)
@@ -228,7 +230,7 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
 
   const mutation = useMutation({
     // Failures (e.g. Samba not updated) come back as 200 { success: false }.
-    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string; warning?: string }>('/api/shares', {
+    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string; warning?: string; access?: string }>('/api/shares', {
       action: editingShare ? 'update' : 'create',
       ...(editingShare ? { id: editingShare.id } : {}),
       name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers,
@@ -238,9 +240,11 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
       recycle_bin: recycleBin,
       hosts_allow: hostsAllow.trim(),
       hosts_deny: hostsDeny.trim(),
+      grant_access: grantAccess,
     })),
     onSuccess: (res) => {
       toast.success(editingShare ? `Share "${name}" updated` : `Share "${name}" created`);
+      if (res?.access) toast.success(`Folder: ${res.access}`)
       if (res?.warning) toast.warning(res.warning)
       onSaved();
       onClose()
@@ -291,6 +295,12 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
           <CheckRow label="Read-only" checked={readonly} onChange={setReadonly} />
           <CheckRow label="Guest access" checked={guestok} onChange={setGuestok} />
         </div>
+        <CheckRow label={validusers.trim() ? 'Give these users access to the folder' : 'Give all users access to the folder (group users)'}
+          checked={grantAccess} onChange={setGrantAccess} />
+        <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: -8 }}>
+          Sets an inherited ACL on the folder ({readonly ? 'read' : 'read and write'}); its existing contents keep their permissions.
+          Users log in with their DPlaneOS password.{guestok ? ' Guests: users the server does not know are let in as guest.' : ''}
+        </span>
 
         <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-elevated)' }}>
           <span className="field-label" style={{ margin: 0 }}>Share options</span>

@@ -37,6 +37,7 @@ type Keeper struct {
 	opened  bool
 	stop    chan struct{}
 	stopped bool
+	timeout int // seconds, of the open device
 }
 
 // NewKeeper returns a keeper; quorum and owns are read on every tick.
@@ -70,7 +71,7 @@ func (k *Keeper) Start() {
 		interval = time.Duration(cfg.TimeoutSecs) * time.Second / 3
 	}
 	k.mu.Lock()
-	k.opened, k.stop = true, make(chan struct{})
+	k.opened, k.stop, k.timeout = true, make(chan struct{}), cfg.TimeoutSecs
 	stop := k.stop
 	k.mu.Unlock()
 	go func() {
@@ -128,6 +129,41 @@ func (k *Keeper) FenceArmed() bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	return k.armed
+}
+
+// Stop ends the keeper when the daemon shuts down gracefully. A node that
+// owns no storage in a cluster (or has no cluster) disarms the watchdog with
+// the magic close: stopping or upgrading dplaned must not reset the machine.
+// A storage owner in a cluster keeps it running: once the fencing delay has
+// passed another node takes the storage over assuming this one reset itself,
+// so dplaned has to be back (systemd restarts it) before the timeout.
+func (k *Keeper) Stop() {
+	k.mu.Lock()
+	if !k.opened {
+		k.mu.Unlock()
+		return
+	}
+	close(k.stop)
+	k.opened = false
+	armed, timeout := k.armed, k.timeout
+	k.mu.Unlock()
+
+	if armed || k.fenceRelevant() {
+		log.Printf("HA WATCHDOG: daemon stopping while this node owns storage in a cluster: "+
+			"the watchdog stays armed; the node resets in %ds unless dplaned is running again", timeout)
+		closeWatchdog()
+		return
+	}
+	shutdownWatchdog()
+}
+
+// fenceRelevant reports whether another node relies on this one resetting
+// itself: a cluster is configured and this node owns storage.
+func (k *Keeper) fenceRelevant() bool {
+	if k.quorum == nil || !k.quorum().Configured {
+		return false
+	}
+	return k.owns != nil && k.owns()
 }
 
 // Restart applies a changed watchdog configuration: closes the device

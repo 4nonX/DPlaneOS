@@ -124,6 +124,9 @@ def fields(body, recv_type, depth=0):
     # helpers the handler dispatches to (directly or through middleware)
     for helper in set(re.findall(r'\bh\.(\w+)\((?:w, r|w, req|w, r,)', body) + re.findall(r'http\.HandlerFunc\(h\.(\w+)\)', body)):
         tags |= fields(func_body(recv_type, helper), recv_type, depth + 1)
+    # package-level helpers given the request (e.g. configureInterface(w, r, req))
+    for helper in set(re.findall(r'(?<![.\w])([a-z]\w*)\(w, r\b', body)):
+        tags |= fields(func_body(None, helper), None, depth + 1)
     return tags
 
 

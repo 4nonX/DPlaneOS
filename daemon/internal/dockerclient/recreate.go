@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"time"
 )
 
@@ -24,6 +25,7 @@ type Recreated struct {
 type rawInspect struct {
 	ID              string         `json:"Id"`
 	Name            string         `json:"Name"`
+	Image           string         `json:"Image"` // the image ID it was created from
 	Config          map[string]any `json:"Config"`
 	HostConfig      map[string]any `json:"HostConfig"`
 	NetworkSettings struct {
@@ -78,14 +80,97 @@ func endpointForCreate(ep map[string]any) map[string]any {
 	return out
 }
 
-// buildCreateBody: the old container's Config and HostConfig with the new
-// image, attached to its primary network (the others are connected after
-// creation; older engines accept a single network at create).
-func buildCreateBody(in *rawInspect, image string) (body map[string]any, primary string, others map[string]map[string]any) {
-	body = map[string]any{}
-	for k, v := range in.Config {
-		body[k] = v
+// rawImageConfig returns the Config an image gives its containers.
+func (c *Client) rawImageConfig(ctx context.Context, ref string) (map[string]any, error) {
+	resp, err := c.get(ctx, "/images/"+url.PathEscape(ref)+"/json", nil)
+	if err != nil {
+		return nil, fmt.Errorf("docker image inspect: %w", err)
 	}
+	var img struct {
+		Config map[string]any `json:"Config"`
+	}
+	if err := decodeJSON(resp, &img); err != nil {
+		return nil, fmt.Errorf("docker image inspect: %w", err)
+	}
+	return img.Config, nil
+}
+
+// withoutImageDefaults removes from a container's Config what its image
+// supplied, as Watchtower does (GetCreateConfig): an inspect shows the
+// image's ENV, CMD, ENTRYPOINT, WORKDIR, USER, labels, exposed ports,
+// volumes and health check merged in, and copied as they are the new
+// container would keep the OLD image's defaults (a stale APP_VERSION, the
+// old command) instead of taking the new image's. What was set on the
+// container itself stays. imageCfg is the old image's Config.
+func withoutImageDefaults(cfg, imageCfg map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range cfg {
+		out[k] = v
+	}
+	if imageCfg == nil {
+		return out
+	}
+	same := func(k string) bool { return reflect.DeepEqual(out[k], imageCfg[k]) }
+	for _, k := range []string{"WorkingDir", "User", "Healthcheck", "StopSignal", "Shell"} {
+		if _, ok := out[k]; ok && same(k) {
+			delete(out, k)
+		}
+	}
+	// CMD belongs to the ENTRYPOINT: only when that is the image's too.
+	if same("Entrypoint") {
+		delete(out, "Entrypoint")
+		if same("Cmd") {
+			delete(out, "Cmd")
+		}
+	}
+	if env, ok := out["Env"].([]any); ok {
+		imgEnv := map[any]bool{}
+		if ie, ok := imageCfg["Env"].([]any); ok {
+			for _, e := range ie {
+				imgEnv[e] = true
+			}
+		}
+		var kept []any
+		for _, e := range env {
+			if !imgEnv[e] {
+				kept = append(kept, e)
+			}
+		}
+		out["Env"] = kept
+	}
+	if labels, ok := out["Labels"].(map[string]any); ok {
+		imgLabels, _ := imageCfg["Labels"].(map[string]any)
+		kept := map[string]any{}
+		for k, v := range labels {
+			if iv, ok := imgLabels[k]; !ok || !reflect.DeepEqual(iv, v) {
+				kept[k] = v
+			}
+		}
+		out["Labels"] = kept
+	}
+	for _, k := range []string{"ExposedPorts", "Volumes"} {
+		m, ok := out[k].(map[string]any)
+		if !ok {
+			continue
+		}
+		img, _ := imageCfg[k].(map[string]any)
+		kept := map[string]any{}
+		for p, v := range m {
+			if _, fromImage := img[p]; !fromImage {
+				kept[p] = v
+			}
+		}
+		out[k] = kept
+	}
+	return out
+}
+
+// buildCreateBody: the old container's Config (without the old image's
+// defaults, see withoutImageDefaults) and HostConfig with the new image,
+// attached to its primary network (the others are connected after
+// creation; older engines accept a single network at create).
+func buildCreateBody(in *rawInspect, oldImageCfg map[string]any, image string) (body map[string]any, primary string, others map[string]map[string]any) {
+	body = withoutImageDefaults(in.Config, oldImageCfg)
 	body["Image"] = image
 	// A hostname Docker generated is the old container's short ID: let the
 	// new container get its own.
@@ -127,7 +212,14 @@ func (c *Client) Recreate(ctx context.Context, name, image string) (*Recreated, 
 	}
 	r := &Recreated{Name: clean, OldID: in.ID, old: fmt.Sprintf("%s-pre-update-%d", clean, time.Now().Unix())}
 
-	body, _, others := buildCreateBody(in, image)
+	// The old image's defaults are taken out of the copied config. Its image
+	// is still there (the old container uses it); if not, the config is
+	// copied as it is.
+	oldImageCfg, err := c.rawImageConfig(ctx, in.Image)
+	if err != nil {
+		oldImageCfg = nil
+	}
+	body, _, others := buildCreateBody(in, oldImageCfg, image)
 	if err := c.rename(ctx, in.ID, r.old); err != nil {
 		return nil, err
 	}

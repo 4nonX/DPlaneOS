@@ -5,6 +5,125 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## Unreleased
+
+Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.
+
+### Upgrade notes
+
+- **Retention policies now prune.** `keep_daily = 7` keeps the newest snapshot of each of the last 7 days (as sanoid and TrueNAS do); before, it kept up to 7 snapshots *in every day*, so nothing was ever pruned. The first run after the update removes the backlog. A policy now needs a prefix.
+- **Snapshot schedules of one dataset need distinct prefixes.** Saving two schedules with the same prefix is refused; the default prefix is `auto-<frequency>`.
+- **Stack update "Update" now rolls back** to the previous images when a service does not come up; deploying a new stack under an existing name is refused (edit it instead).
+- **Local users and groups become system accounts and groups** (UID/GID from 3000, created and removed by the daemon); database migration `00032` adds `users.uid` and `users.smb_nt_hash`. Existing users get SMB access with their next login or password change. User names that are not valid system account names (upper case, dots) or that a system account already has are not file-sharing accounts.
+- **NFS defaults:** NFSv4.0 is served again (`services.dplaneos.nfs.minVersion` now defaults to `"4"`); NFSv3 needs `services.dplaneos.nfs.enableNFSv3`. rpcbind (111) is only opened with NFSv3.
+- **Samba on NixOS:** `map to guest` is set by the daemon while a share allows guests (`services.dplaneos.samba.allowGuest` now forces it on always); the catch-all ID map range is 90000000–99999999 (AD joins included).
+- **Network configuration moves to `/etc/systemd/network/05-dplane-*`**; files of earlier versions (`50-dplane-*`) are imported and replaced when the daemon starts. `POST /api/network/apply` (netplan, never available on NixOS) is removed; new: `GET /api/network/pending`, `POST /api/network/revert`. Interface changes need the `network:write` permission (was `system:write`). Network and firewall changes must be confirmed (`POST /api/network/confirm`) within 90 s.
+- **Firewall rules on NixOS** no longer go into `firewall_tcp`/`firewall_udp` of the NixOS bridge (GitOps `system.firewall` still does). Rules made on the page with earlier versions are not carried over.
+- **Git-backed stacks run as compose project `git-<name>`**; their previous containers are replaced at the next deploy. Database migration `00031` adds `deployed_commit`, `deploy_error` and `webhook_secret`.
+- **Replication copies are received read-only and unmounted** (`zfs recv -u -x mountpoint -o readonly=on`, no `-F`) and keep the snapshots the source has pruned. Without a common snapshot a run stops instead of resending everything; "Replicate from scratch" (off by default) restores the old behaviour per schedule.
+- **Updates are NixOS generations of a system flake.** The daemon writes `/etc/nixos/flake.nix` (the DPlaneOS release plus `hardware-configuration.nix` and an optional `local.nix`) at start; every rebuild goes through it with `--impure` and is refused without it. The Updates page updates to a release, reboots, checks the system and goes back to the previous generation when the check fails. `dplaneos-ota-update`, signed bundles and `services.dplaneos.ota.signingKey` are removed; new installs no longer create the `system-b` partition (root is 40 GB).
+- **Configuration backup replaces the database backup.** `GET/POST /api/system/db/backup|restore` are replaced by `/api/system/config/backup` and `/api/system/config/restore` (database plus the settings kept in files and, optionally, the secrets key); a restore is applied at the next daemon start. A daily copy is written to the first data pool (`.dplaneos-config/`). `.dump` files of the old backup cannot be restored through the UI.
+- **`dplaneos-recovery` is installed on NixOS** and resets passwords and two-factor authentication through `dplaned -recover-...`; its "Fix Permissions" option is gone.
+- **Installer:** partition labels are now `dplaneos-esp`, `dplaneos-system`, `dplaneos-persist` (a second disk with an "ESP" partition made the mounts ambiguous); disks need at least 32 GB (40 GB system partition from 64 GB, 24 GB below); UEFI is required; `DPLANEOS_INSTALL_DISK` + `DPLANEOS_ADMIN_PASSWORD` install unattended.
+- **UPS:** the shutdown action is always "shutdown" (hibernation is impossible with ZFS: `nohibernate`); power events go to the daemon as alerts.
+- **A zvol is exported once:** a second NVMe-oF subsystem or iSCSI target on the same zvol is refused.
+- **OIDC:** a local account is linked by email only when the IdP marks the email verified; roles granted from IdP groups are revoked when the group is gone; the configured groups claim is used.
+- **Active Directory:** the clock is checked against the domain controller (not "NTP synchronised"); the join requires the applied AD configuration (security = ads, realm, the domain's NetBIOS name as workgroup, new optional field).
+- **Alerts:** one dispatcher for all sources with a 30-minute repeat window (repeats only in the UI); e-mail and Telegram get warnings and critical alerts. A degraded pool is a warning and no longer stops Docker (only a faulted, unavailable or suspended pool does).
+
+### Fixed
+
+- **Authentication bypass (read access without a session):** a request with any made-up `X-Session-ID` and `X-User` was treated as "session database unavailable" and served as a degraded user that could read every endpoint with `read` permission (users, shares, settings, audit log). Unknown sessions now get 401, a failing session lookup 503.
+- **Configuration restore** restored only the database (schedules, firewall rules, certificates, stack files, iSCSI/NVMe-oF exports, NixOS settings, replication keys and the keys for the sealed secrets and the audit log were not backed up), ran `pg_restore --clean` into the live database under the running daemon (a failure left a half-dropped database), and restored the sessions of the backup (logging back in whoever had logged out since).
+- **Recovery CLI:** not installed on NixOS; its password reset wrote a Python bcrypt hash over TCP for a user literally named `admin` and left the SCRAM keys and SMB password unchanged; "Fix Permissions" chowned `/var/lib/dplaneos` including PostgreSQL's data directory to `dplaneos`, after which PostgreSQL does not start. Documented manual resets had the same gaps, and disabling 2FA in `totp_secrets` alone left the login asking for the code.
+- **SCRAM login** always failed: its user lookup read a column `totp_enabled` from `totp_secrets`, which has none.
+- **The daemon's PostgreSQL tools** (`pg_dump`, `psql`) came from the default `postgresql` package rather than the server's; an older `pg_dump` refuses a newer server.
+- **Fleet rollouts** with no soak time compared the wave's database time (`NOW()`) with the daemon's clock and could miss the advance under load.
+- **Installer (offline ISO) could not install:** the disk list dropped disks whose model has spaces or none (most); partitioning ran disko's CLI, which needs `<nixpkgs>` and a build at install time (both missing offline; the scripts are now built with the ISO); `nixos-install --option substitute false` stopped it from copying the system from the ISO store; the admin password file was written to the system partition, hidden at boot by the `/persist` bind mount (the admin got no password and the setup step stayed open to anyone on the network); "Legacy BIOS" installed a system that cannot boot; two python interpreters collided on `bin/python3`.
+- **The installed system booted only on one motherboard:** its initrd had the drivers of the reference board only (nvme, ahci), and the installer copies that prebuilt system as is (the generated hardware-configuration.nix applies from the first rebuild). On a VM (virtio, Hyper-V, VMware), a SAS/RAID controller, USB or eMMC the root disk was never found (initrd timeout, emergency mode). The image now carries the drivers of NixOS's installer images plus the common HBAs, VMware PVSCSI, USB storage and eMMC; the kernel and a login also go to the first serial port (headless boxes, IPMI SOL).
+- **A new install never got a network address:** `/etc/systemd/network` was persisted, and the empty copy from `/persist` mounted over it hid the DHCP default that NixOS links there; networkd never configured the card, so the web interface was unreachable on every machine. The directory is no longer persisted (the root filesystem is kept across reboots and updates); existing `05-dplane-*` files are copied back from `/persist` once. Same boot: `/etc/hostid` was both generated by NixOS and persisted (the persistence step failed), `dplane-state.json` was persisted on its own inside the persisted `/var/lib/dplaneos` (a link to itself: "too many levels of symbolic links", UI settings never reached rebuilds), the `/persist` check reported it missing on every boot (`mountpoint` not in its PATH), file-sharing accounts were never created (`useradd` not in the daemon's PATH), and the installed image carried placeholders: host name `YOUR_HOSTNAME`, an SSH key `YOUR_SSH_PUBLIC_KEY` and a Newt tunnel container with dummy credentials (now off); `zfs.zfs_arc_max` was on the command line twice. The installer test now reads the installed system's journal and fails on any failed unit.
+- **UPS:** low battery with the "hibernate" action never shut down; no power event raised an alert (NOTIFYCMD was a no-op), and the final ones were lost when the notify child broadcast to terminals (WALL) before running the command.
+- **iSCSI targets could not be created:** the portal was created as `0.0.0.0:3260` (one argument), which targetcli refuses; an ACL without CHAP credentials was accepted on a target that requires CHAP (that initiator could never log in).
+- **NVMe-oF exports could not be created:** subsystems, hosts and ports were made with names (`dplane-ss-…`, a written `subsys_nqn` file) where the kernel uses the NQN as the directory name and numbered ports; ANA groups were written to the subsystem instead of the port; IPv6 listen addresses were set as IPv4; a failed apply stayed in the saved list.
+- **LDAP:** the username was put into the search filter unescaped (`*` and `)(` changed it); "search user" reported success without searching.
+- **OIDC:** email linking ignored `email_verified` (anyone able to set an unverified email at the IdP took over the local account with it); a string-valued groups claim failed the login.
+- **AD join** always failed with "Invalid request body" (the password was decoded as base64); the DNS domain was passed as the NetBIOS workgroup; the Samba package was built without AD support ("ADS support not compiled in": no join could ever succeed; now the LDAP build, `services.dplaneos.samba.package`); AD mode set `passdb backend = secrets`, which does not exist (every `net` call failed: "No builtin nor plugin backend for secrets found"); winbind was never started after the join (it exits while the host is not joined), so the trust check failed and AD users did not resolve until a reboot; a wrong password was reported as a generic failure and any error containing "time" (e.g. a timeout) as clock skew.
+- **BMC:** Redfish health, sensors and power control found no systems on any BMC that follows the specification (members were read from the service root instead of the linked collections) and the event log only on `/redfish/v1/Systems/1`; IPMI-only BMCs were never detected (probe without credentials); IPMI sensors were read from the wrong columns of `sdr elist` and critical states shown as unknown.
+- **Alert dispatchers** were read and replaced without synchronisation.
+- **Rebuilds replaced DPlaneOS with plain NixOS:** `Reconcile`, the watchdog apply and the validation ran `nixos-rebuild` without a flake, and an installed system's `/etc/nixos` held only NixOS's stock `configuration.nix`.
+- **UI settings broke every rebuild:** setting the hostname, time zone, SSH options, the Samba workgroup or a sysctl in the UI conflicted with the configuration's own value ("conflicting definition values"); UI values now take precedence.
+- **A/B OTA could not work:** no "DPlaneOS (Slot A/B)" boot entries existed, root was always `system-a`, nothing built bundles, the signing key defaulted to empty and the health unit waited for a nonexistent `smbd.service`.
+- **Alerting:** the pool heartbeat treated a degraded mirror (`UNAVAIL` member) as halted and stopped Docker; ZED checksum and data-error events were sent as info; scrub and resilver results were never examined; SMTP sent mail without Date and Message-ID headers, ignored "Require TLS" and could not use port 465; Telegram messages with `_` or `*` failed (Markdown); saving the Telegram settings had no effect until restart; replication sent an alert on every successful run; failed snapshots and certificate renewals sent none; NVMe SMART health was not evaluated.
+
+- **Retention** pruned nothing (per-bucket counting), mixed child datasets into the parent's buckets, pruned manual snapshots when the prefix was empty, used the calendar year for ISO weeks, and could prune the incremental base of a replication schedule. Deleting a policy from the UI was refused.
+- **Snapshot scheduler:** schedules with the UI's default prefix pruned each other (the hourly pruning removed the daily snapshots); "Run now" created `dataset@-YYYYMMDD-HHMM`; `retention_days` was ignored; "Trigger replication after each snapshot" was never saved.
+- **Replication:** a scheduled run could pick a child dataset's newest snapshot; encrypted datasets could not be replicated (`zfs send -R` without `-w`); received datasets mounted over the backup host's paths; a schedule stayed "running" forever after a daemon restart or a fast failure of "Run now"; a retry after an interrupted stream failed (`must specify -F`); `zfs send` errors were lost; two sources replicating to the same remote name failed with misleading messages (now detected by GUID).
+- **Hot-swap:** the auto-import on disk insertion never ran (the registry was overwritten before it was read). A returning member of an imported pool is brought back online.
+- **GitOps:** an empty dataset was never deletable (an empty filesystem reports ~100 KiB `used`) and an approved delete failed with "please report this as a bug". Datasets and pools that hold anything are never destroyed, approved or not.
+- **Samba Previous Versions** showed nothing (`shadow:delimiter` missing, `+` in a basic regex).
+- **NFS:** a path with a space exported the wrong path and failed `exportfs -ra` for every export; the exports file is rewritten at startup (it was lost with OTA updates).
+- **iSCSI targets** were gone after every reboot: the LIO configuration is saved to `/etc/target` (persisted) and restored at startup. **NVMe-oF exports** are restored at startup too.
+- **HA watchdog:** a graceful stop of `dplaned` (OTA, `nixos-rebuild`, recovery) left `/dev/watchdog` armed and reset the node ~30 s later. It is now disarmed unless this node owns storage in a cluster.
+- **dplane-fenced** was killed by systemd every 60 s (`WatchdogSec` without keep-alives); it now sends `READY=1` and `WATCHDOG=1` (`Type=notify`).
+- **UPS:** the low-battery level set on the UPS page had no effect without `ignorelb`.
+- **Rate limiting** failed file uploads above ~1 GB with 429 (every 10 MB chunk counted); the limiter's map of client addresses never shrank.
+- **NixOS apply:** `nixos-rebuild` ran inside dplaned's cgroup, so a switch that restarted dplaned killed itself halfway; it now runs in its own transient unit. Validate and rollback no longer time out after 60 s, and rolling back to a specific generation runs `switch-to-configuration` instead of only its `activate` script.
+
+### Fixed: sharing (SMB / NFS)
+
+Compared with TrueNAS (local users are system accounts with a Samba hash; ACL presets for shares) and checked with Samba 4.19 and nfs-utils in a VM.
+
+- **No local user could log in to an SMB share.** DPlaneOS users existed only in its database: no system account, no Samba password (`passdb backend = tdbsam`), so `valid users = alice` named nobody and NFS had no owners to map. Local users and groups are now system accounts and groups (UID/GID from 3000) with the Samba (NT) hash of the password, stored sealed and set wherever a password is set (also filled in at the next login for passwords that came as a hash only). The accounts are recreated at every daemon start, since an OTA update replaces `/etc/passwd`.
+- **A new share could be opened but not written** (its folder belongs to root): a share can now give its users access to the folder (inherited POSIX ACL, `acltype=posix` turned on where needed).
+- **Guest shares did not admit unknown users:** NixOS forced `map to guest = Never` and the setting meant to change it was never written. It now follows the shares.
+- **Previous Versions** missed files in child datasets inside the share and snapshots of schedules with their own prefix.
+- NixOS: the Samba ordering targeted a unit `smbd` that does not exist there (it created a stray unit without `ExecStart`; the unit is `samba-smbd`), and the manual "Reload Samba" called it too. Removed settings Samba no longer has (`read raw`, `write raw`) and the discouraged `socket options`. Samba's ID-map range (3000–7999) overlapped the user IDs; it is now 90000000–99999999. Added WS-Discovery: Windows 10 and later did not show the server under Network.
+- **NFS:** child datasets inside an export appeared empty to NFSv4 clients (`crossmnt` is now in the defaults); an unknown option was saved and then broke every later `exportfs` reload; GitOps exports were written without any check (a newline in a value added exports of its own). macOS could not mount (only NFSv4.1+ was served, macOS speaks 4.0); `minVersion = "4"` also left NFSv3 on, contrary to its description. NFSv3 is now a separate option with fixed ports.
+- **ZFS operations of the static daemon build** (Makefile release binary, NixOS VM tests; installed systems use the libzfs build): the command whitelist refused reading a dataset property (`zfs get` allowed one argument and gets two), snapshot holds and releases (snapshot names were checked as dataset names), and creating or destroying a snapshot of a pool's root dataset (`tank@…`). The Holds page, sandbox cleanup and anything reading a property failed there. libzfs errors now include the reason instead of "failed".
+- GitOps: reconciling a group always failed (it set a `groups.updated_at` column that does not exist), and a group declared without a GID cleared the one it had.
+- Users disabled on the Users page were shown as Active.
+
+### Fixed: network
+
+Compared with TrueNAS (test changes with automatic rollback), netplan (one networkd file per interface) and systemd's documented behaviour; reproduced with systemd-networkd 255 in a VM.
+
+- **Fresh installs on most hardware had no network:** the installed system configured DHCP only on `enp2s0` (one board's interface name) with DHCP otherwise off. It now uses DHCP on every Ethernet port.
+- **Interface settings from the UI were ignored by networkd:** networkd uses the *first* matching `.network` file, and DPlaneOS's `50-dplane-*` files sorted after the system's (`10-enp2s0`, netplan's `10-netplan-*`). The UI looked right because the address was also set directly; after a reboot it was gone. Files are now `05-dplane-<interface>.*`, one per interface.
+- **Creating a VLAN removed its parent's address** (the VLAN's separate attach file became the parent's only configuration): a VLAN on the management interface cut the server off. The VLAN now goes into the parent's own file.
+- **Deleting a bond or changing its mode did nothing** (networkd never removes or changes an existing device): the bond stayed up with its members. Bonds also had no link monitoring, so a failed member was never noticed (`MIIMonitorSec=100ms` now).
+- **DNS changes never applied** (`systemctl reload systemd-resolved` is not supported), search domains were dropped, and the page showed the local stub `127.0.0.53`; the DNS tab also crashed on the server's response.
+- **Only interface address changes could be rolled back** (35 s, lost on a daemon restart); bonds, VLANs, DNS and routes applied without one, so a bond made of the management interface locked you out. Every network and firewall change is now confirmed or reverted after 90 s, also across a restart or reboot.
+- A static interface opened in the configure dialog with DHCP ticked; saving switched it to DHCP. Route delete first added the route, and routes were not saved.
+- GitOps network settings went through the NixOS bridge with the same file-order problems and could conflict with the page; they now use the same networkd files. The boot reconciler no longer adds old saved addresses on top of networkd.
+- **Firewall (NixOS):** a rule with a source address opened the port to everyone, delete and deny did nothing for ports the system opens, "Sync to NixOS" emptied the rule list, enable/disable reported success without effect, and nothing applied before a rebuild. Rules now apply at once in an nftables table of their own (see the admin guide).
+- **Certificates (NixOS):** the web interface's active certificate could be deleted (nginx then failed to start at the next rebuild), the page did not show which one is active, renewals reloaded nginx with `nginx -s reload`, which does not reach the NixOS-managed nginx, and the ACME challenge server listened on all interfaces (now 127.0.0.1).
+
+### Fixed: containers
+
+Compared with Komodo, Dockge, Portainer and Watchtower, reproduced on Docker Engine 29 in a VM.
+
+- **Docker API on NixOS 26.05:** the client used API v1.41, which Docker 29 (shipped by NixOS 26.05) refuses with HTTP 400; container lists, actions, logs, pulls and updates failed. The version is now negotiated with the daemon.
+- **Pulls that failed after they started** (a missing layer, a rate limit) were reported as done; the error in the progress stream is now returned.
+- **Standalone container updates** kept the old image's defaults (ENV such as version variables, CMD, ENTRYPOINT, WORKDIR, labels): the "updated" container ran the old configuration. Values the old image supplied are no longer copied (as Watchtower does).
+- A container without a health check counted as up the moment it started, even if it crashed a second later; it must now stay up for 10 s.
+- **Stack status** ignored exited services: a stack with a crashed service showed "running".
+- **Git-backed stacks** had no project name of their own: two repositories with their compose file in folders of the same name were one compose project, and deploying one removed the other's containers. Each runs as `git-<name>` now; containers started under the old name are taken down at the next deploy.
+- Git auto-sync redeployed on every cycle (restarting stacks stopped on purpose), stopped for good at the first local change (`git pull --rebase`), and failed deploys were only logged.
+- **Docker started before the ZFS datasets were mounted** at boot: containers wrote to empty folders on the root filesystem, hidden under the dataset once mounted. `docker.service` now starts after `zfs-mount.service`.
+- A stack edit replaced the working compose file before it was checked, `.env` could not be cleared, a closed browser tab killed a running `compose up`, and two operations on one stack could run at once.
+- **Sandboxes** were never listed (wrong depth) and their cleanup was not routed (and pruned all unused Docker volumes); it now removes leftover sandbox snapshots.
+
+### Added
+
+- **Stack updates with rollback**, **image update detection** (registry digests, no pull), **per-stack auto-update**, **Git stack webhooks** (GitHub, Gitea/Forgejo, GitLab). New API: `POST /api/docker/stacks/update`, `GET /api/docker/stacks/updates`, `POST /api/docker/stacks/updates/check`, `PUT /api/docker/stacks/settings`, `POST /api/git-sync/repos/webhook-secret`, `POST /api/git-sync/repos/webhook/{id}`.
+- 15-minute snapshot tier, recursive snapshot schedules, age-based retention (`retention_days`).
+- `services.dplaneos.memoryMax` (default `1G`) and `OOMPolicy=continue` on `dplaned`.
+
+### Documentation
+
+- Corrected claims that did not match the code: kernel 6.12 (not 6.6), iSCSI via LIO/targetcli (not nvmet), no `ProtectSystem` on the daemon (and why), production daemon is a glibc/libzfs build (not static musl), libzfs does not cover send/receive, 31 RBAC permissions, NixOS `autoSnapshot` is not set up by DPlaneOS.
+
+
 ## v15.1.0 (2026-10-15) - "Fleet"
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend), 6 (fleet) and 7 (hardening).

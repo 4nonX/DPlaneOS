@@ -73,6 +73,7 @@ interface ReplicationSchedule {
   resume:                   boolean
   compress:                 boolean
   non_recursive?:           boolean
+  allow_from_scratch?:      boolean  // destroy + full send when no common snapshot
   rate_limit_mb:            number
   enabled:                  boolean
   last_run?:                string
@@ -744,9 +745,13 @@ function ReplicateForm({ datasets, remotes }: { datasets: ZFSDataset[]; remotes:
 
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 14 }}>
             <CheckRow label="Recursive (include child datasets)" checked={!nonRecursive} onChange={v => setNonRecursive(!v)} />
-            <CheckRow label="Incremental (send only changes)" checked={incremental} onChange={v => { setIncremental(v); if (!v) setBaseSnapshot('') }} />
+            <CheckRow label="Choose the incremental base myself" checked={incremental} onChange={v => { setIncremental(v); if (!v) setBaseSnapshot('') }} />
             <CheckRow label="Resume interrupted transfer" checked={resume} onChange={setResume} />
             <CheckRow label="Compress stream (lz4)" checked={compress} onChange={setCompress} />
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 8 }}>
+            Without a chosen base, only the changes since the newest snapshot both sides share are sent; a remote that does not exist yet gets a full copy.
+            Encrypted datasets are sent raw: the peer stores them encrypted and never needs the key.
           </div>
 
           {incremental && (
@@ -806,10 +811,10 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
   const [remotePool,        setRemotePool]        = useState(editingSchedule?.remote_pool ?? '')
   const [interval,          setInterval]          = useState<ReplicationSchedule['interval']>(editingSchedule?.interval ?? 'daily')
   const [triggerOnSnapshot, setTriggerOnSnapshot] = useState(editingSchedule?.trigger_on_snapshot ?? false)
-  const [incremental,       setIncremental]       = useState(editingSchedule?.incremental ?? false)
-  const [resume,            setResume]            = useState(editingSchedule?.resume ?? false)
+  const [resume,            setResume]            = useState(editingSchedule?.resume ?? true)
   const [compress,          setCompress]          = useState(editingSchedule?.compress ?? true)
   const [nonRecursive,      setNonRecursive]      = useState(editingSchedule?.non_recursive ?? false)
+  const [allowFromScratch,  setAllowFromScratch]  = useState(editingSchedule?.allow_from_scratch ?? false)
   const [rateLimitMB,       setRateLimitMB]       = useState(editingSchedule?.rate_limit_mb ?? 0)
   const [enabled,           setEnabled]           = useState(editingSchedule?.enabled ?? true)
 
@@ -840,10 +845,11 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
       remote_pool:         remotePool || sourceDataset,
       interval,
       trigger_on_snapshot: triggerOnSnapshot,
-      incremental,
+      incremental:         true, // runs are always incremental when both sides share a snapshot
       resume,
       compress,
       non_recursive:       nonRecursive,
+      allow_from_scratch:  allowFromScratch,
       rate_limit_mb:       rateLimitMB,
       enabled,
     })
@@ -911,11 +917,26 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           <CheckRow label="Recursive (include child datasets)" checked={!nonRecursive} onChange={v => setNonRecursive(!v)} />
           <CheckRow label="Compress stream" checked={compress} onChange={setCompress} />
-          <CheckRow label="Incremental (use last snapshot as base)" checked={incremental} onChange={setIncremental} />
           <CheckRow label="Resume interrupted transfer" checked={resume} onChange={setResume} />
           <CheckRow label="Trigger after each snapshot" checked={triggerOnSnapshot} onChange={setTriggerOnSnapshot} />
           <CheckRow label="Enabled" checked={enabled} onChange={setEnabled} />
         </div>
+
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+          Each run sends the changes since the newest snapshot both sides share, with every snapshot in between.
+          The copy on the peer is read-only and unmounted, and keeps snapshots the source has since pruned.
+        </div>
+
+        <CheckRow label="Replicate from scratch when there is no common snapshot (destroys the copy on the peer)" checked={allowFromScratch} onChange={setAllowFromScratch} />
+        {allowFromScratch && (
+          <div className="alert alert-warning" style={{ fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <Icon name="warning" size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              If the peer's copy shares no snapshot with the source, a run destroys it, with every snapshot it holds, and sends everything again.
+              Leave this off unless the peer's older snapshots are expendable.
+            </span>
+          </div>
+        )}
 
         {interval === 'manual' && triggerOnSnapshot && (
           <div className="alert alert-info" style={{ fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -1343,8 +1364,9 @@ function RetentionTab() {
         <div>
           <div style={{ fontWeight: 700 }}>Snapshot Retention Policies</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 2 }}>
-            Automatically prune old local snapshots by time bucket. Only snapshots matching the prefix are pruned; manual snapshots are never touched.
-            Retention runs after each replication cycle - remote copies are preserved independently.
+            Automatically prune old local snapshots: keep the newest snapshot of each of the last N hours, days, weeks, months and years.
+            Only snapshots matching the prefix are pruned, in the dataset and each child on its own; manual snapshots and the snapshot a replication schedule builds on are never touched.
+            The copies on replication peers keep their snapshots.
           </div>
         </div>
         <button onClick={() => setEditing({ ...blank })} className="btn btn-primary">
@@ -1368,7 +1390,7 @@ function RetentionTab() {
             <div style={{ flex: 1 }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{p.dataset}</div>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 2 }}>
-                prefix: <code style={{ fontFamily: 'var(--font-mono)' }}>{p.prefix || '(all auto)'}</code>
+                prefix: <code style={{ fontFamily: 'var(--font-mono)' }}>{p.prefix || '(none: prunes nothing)'}</code>
                 {' · '}
                 {[
                   p.keep_hourly  && `${p.keep_hourly}h`,
@@ -1395,18 +1417,18 @@ function RetentionTab() {
             <div style={{ fontWeight: 700, marginBottom: 16 }}>{editing.id ? 'Edit Policy' : 'New Retention Policy'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               <label className="field" style={{ gridColumn: '1 / -1' }}>
-                <span className="field-label">Dataset (exact name)</span>
+                <span className="field-label">Dataset (its children are covered too)</span>
                 <input value={editing.dataset ?? ''} onChange={e => setEditing(p => ({ ...p, dataset: e.target.value }))}
                   placeholder="tank/data" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
               </label>
               <label className="field" style={{ gridColumn: '1 / -1' }}>
-                <span className="field-label">Snapshot prefix to prune (leave blank for all)</span>
+                <span className="field-label">Snapshot prefix to prune (required, e.g. auto- or auto-hourly-)</span>
                 <input value={editing.prefix ?? ''} onChange={e => setEditing(p => ({ ...p, prefix: e.target.value }))}
                   placeholder="auto-" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
               </label>
               {([['keep_hourly','Hourly'],['keep_daily','Daily'],['keep_weekly','Weekly'],['keep_monthly','Monthly'],['keep_yearly','Yearly']] as const).map(([k, label]) => (
                 <label key={k} className="field">
-                  <span className="field-label">Keep {label} (0 = unlimited)</span>
+                  <span className="field-label">Keep {label} (0 = off)</span>
                   <input type="number" min={0} value={(editing as Partial<RetentionPolicy>)[k] ?? 0}
                     onChange={e => setEditing(p => ({ ...p, [k]: parseInt(e.target.value) || 0 }))}
                     className="input" />
@@ -1420,7 +1442,7 @@ function RetentionTab() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setEditing(null)} className="btn btn-ghost">Cancel</button>
               <button onClick={() => save.mutate({ action: editing.id ? 'update' : 'create', ...editing } as Partial<RetentionPolicy> & { action: string })}
-                disabled={!editing.dataset?.trim() || save.isPending}
+                disabled={!editing.dataset?.trim() || !editing.prefix?.trim() || save.isPending}
                 className="btn btn-primary">
                 {save.isPending ? 'Saving…' : 'Save'}
               </button>

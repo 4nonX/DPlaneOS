@@ -28,6 +28,7 @@ interface LdapConfig {
   group_filter?:   string
   provider_type?:  ProviderType
   realm?:          string
+  workgroup?:      string
   domain_joined?:  boolean
   user_id_attr?:   string
   user_name_attr?: string
@@ -322,6 +323,11 @@ function ConfigTab() {
             {isAD ? (
               <Field label="AD Domain / Realm">
                 <input value={formCfg.realm ?? ''} onChange={e => set('realm', e.target.value)} placeholder="EXAMPLE.COM" className="input" style={{ textTransform: 'uppercase' }} />
+              </Field>
+            ) : null}
+            {isAD ? (
+              <Field label="NetBIOS domain name (optional)">
+                <input value={formCfg.workgroup && formCfg.workgroup !== 'WORKGROUP' ? formCfg.workgroup : ''} onChange={e => set('workgroup', e.target.value)} placeholder={((formCfg.realm ?? '').split('.')[0] || 'EXAMPLE').toUpperCase()} className="input" style={{ textTransform: 'uppercase' }} />
               </Field>
             ) : (
               <Field label="Base DN">

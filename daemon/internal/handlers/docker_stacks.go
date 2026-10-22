@@ -1,12 +1,13 @@
 package handlers
 
 import (
-	pathpkg "path"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -118,16 +119,20 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromRequest(r)
 	start := time.Now()
 
-	// Ensure stacks base directory exists
-	if err := os.MkdirAll(defaultStacksDir, 0750); err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to create stacks directory: %v", err),
-		})
+	unlock, ok := lockStack(req.Name)
+	if !ok {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' is busy with another operation", req.Name), http.StatusConflict)
+		return
+	}
+	defer unlock()
+
+	// A new stack: an existing one is changed through its editor.
+	if _, err := os.Stat(filepath.Join(dir, "docker-compose.yml")); err == nil {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' already exists", req.Name), http.StatusConflict)
 		return
 	}
 
-	// Create stack directory
+	// Ensure stacks base directory exists
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		respondOK(w, map[string]any{
 			"success": false,
@@ -136,31 +141,25 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write docker-compose.yml
-	composePath := filepath.Join(dir, "docker-compose.yml")
-	if err := os.WriteFile(composePath, []byte(yaml), 0640); err != nil {
+	// Checked by compose itself before anything is written.
+	env := req.Env
+	if strings.TrimSpace(env) == "" {
+		env = ""
+	}
+	if err := validateStackFiles(req.Name, dir, yaml, &env); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if err := writeStackFiles(dir, []byte(yaml), &env); err != nil {
 		respondOK(w, map[string]any{
 			"success": false,
-			"error":   fmt.Sprintf("Failed to write compose file: %v", err),
+			"error":   fmt.Sprintf("Failed to write the stack files: %v", err),
 		})
 		return
 	}
 
-	// Write .env if provided
-	if strings.TrimSpace(req.Env) != "" {
-		envPath := filepath.Join(dir, ".env")
-		if err := os.WriteFile(envPath, []byte(req.Env), 0640); err != nil {
-			respondOK(w, map[string]any{
-				"success": false,
-				"error":   fmt.Sprintf("Failed to write .env file: %v", err),
-			})
-			return
-		}
-	}
-
 	// Run docker compose up -d
-	output, composeErr := cmdutil.RunSlow("docker_compose",
-		"compose", "--project-directory", dir, "-f", composePath, "up", "-d")
+	output, composeErr := cmdutil.RunSlow("docker_compose", stackComposeArgs(req.Name, dir, "up", "-d", "--remove-orphans")...)
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "stack_deploy",
@@ -196,14 +195,14 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────
 
 type StackInfo struct {
-	Name         string                   `json:"name"`
-	Path         string                   `json:"path"`
-	Status       string                   `json:"status"`   // "running", "partial", "stopped", "unknown"
-	Services     []map[string]any `json:"services"` // compose ps output
-	FileSize     int64                    `json:"file_size"`
-	CreatedAt    string                   `json:"created_at"`
-	UpdatedAt    string                   `json:"updated_at"`
-	Labels       map[string]string        `json:"labels,omitempty"`        // dplaneos.* labels from first container
+	Name      string            `json:"name"`
+	Path      string            `json:"path"`
+	Status    string            `json:"status"`   // "running", "partial", "stopped", "unknown"
+	Services  []map[string]any  `json:"services"` // compose ps output
+	FileSize  int64             `json:"file_size"`
+	CreatedAt string            `json:"created_at"`
+	UpdatedAt string            `json:"updated_at"`
+	Labels    map[string]string `json:"labels,omitempty"` // dplaneos.* labels from first container
 }
 
 func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -259,10 +258,11 @@ func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 		}
 		stack.UpdatedAt = fileInfo.ModTime().UTC().Format(time.RFC3339)
 
-		// Get compose status (best effort, don't block on failures)
+		// Get compose status (best effort, don't block on failures). --all:
+		// without it exited services are not listed and a stack with a
+		// crashed service showed as "running".
 		output, composeErr := cmdutil.RunFast("docker_compose",
-			"compose", "--project-directory", dir, "-f", composePath,
-			"ps", "--format", "json")
+			stackComposeArgs(name, dir, "ps", "--all", "--format", "json")...)
 
 		if composeErr != nil {
 			stack.Status = "stopped"
@@ -351,10 +351,10 @@ func (h *StackHandler) GetStackYAML(w http.ResponseWriter, r *http.Request) {
 
 func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		YAML     string `json:"yaml"`
-		Env      string `json:"env"`      // .env content (optional)
-		Redeploy bool   `json:"redeploy"` // if true, runs compose up after writing
+		Name     string  `json:"name"`
+		YAML     string  `json:"yaml"`
+		Env      *string `json:"env"`      // .env content: absent = keep, "" = remove
+		Redeploy bool    `json:"redeploy"` // if true, runs compose up after writing
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -379,33 +379,32 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	composePath := filepath.Join(dir, "docker-compose.yml")
+	unlock, ok := lockStack(req.Name)
+	if !ok {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' is busy with another operation", req.Name), http.StatusConflict)
+		return
+	}
+	defer unlock()
 
-	// Verify stack exists
-	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+	prev, err := readStackFiles(dir)
+	if os.IsNotExist(err) {
 		respondErrorSimple(w, fmt.Sprintf("Stack '%s' not found", req.Name), http.StatusNotFound)
 		return
 	}
-
-	// Write updated YAML
-	if err := os.WriteFile(composePath, []byte(yaml), 0640); err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to write compose file: %v", err),
-		})
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Failed to read the stack files: " + err.Error()})
 		return
 	}
 
-	// Write .env if provided (empty string = delete .env)
-	envPath := filepath.Join(dir, ".env")
-	if req.Env != "" {
-		if err := os.WriteFile(envPath, []byte(req.Env), 0640); err != nil {
-			respondOK(w, map[string]any{
-				"success": false,
-				"error":   fmt.Sprintf("Failed to write .env file: %v", err),
-			})
-			return
-		}
+	// Checked by compose before it replaces the working file: a typo used
+	// to overwrite it and leave the stack with nothing that deploys.
+	if err := validateStackFiles(req.Name, dir, yaml, req.Env); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if err := writeStackFiles(dir, []byte(yaml), req.Env); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Failed to write the stack files: " + err.Error()})
+		return
 	}
 
 	user := getUserFromRequest(r)
@@ -415,11 +414,11 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 		"message": "YAML updated",
 	}
 
-	// Optionally redeploy
+	// Optionally redeploy; if that fails the previous files come back and
+	// are deployed again.
 	if req.Redeploy {
 		start := time.Now()
-		output, composeErr := cmdutil.RunSlow("docker_compose",
-			"compose", "--project-directory", dir, "-f", composePath, "up", "-d")
+		output, composeErr := cmdutil.RunSlow("docker_compose", stackComposeArgs(req.Name, dir, "up", "-d", "--remove-orphans")...)
 		duration := time.Since(start)
 
 		audit.LogCommand(audit.LevelInfo, user, "stack_redeploy",
@@ -429,7 +428,14 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 		result["output"] = string(output)
 		result["duration_ms"] = duration.Milliseconds()
 		if composeErr != nil {
-			result["redeploy_error"] = composeErr.Error()
+			result["success"] = false
+			msg := fmt.Sprintf("Deploying the change failed (%v); the previous version was restored", composeErr)
+			if err := prev.restore(dir); err != nil {
+				msg = fmt.Sprintf("Deploying the change failed (%v) and restoring the previous files failed: %v", composeErr, err)
+			} else if out, err := cmdutil.RunSlow("docker_compose", stackComposeArgs(req.Name, dir, "up", "-d", "--remove-orphans")...); err != nil {
+				msg += fmt.Sprintf(", but redeploying it failed too: %v: %s", err, lastLines(out, 3))
+			}
+			result["error"] = msg
 		} else {
 			result["message"] = "YAML updated and stack redeployed"
 		}
@@ -470,11 +476,17 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("force") == "true"
 	purge := r.URL.Query().Get("purge") == "true"
 
+	unlock, ok := lockStack(name)
+	if !ok {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' is busy with another operation", name), http.StatusConflict)
+		return
+	}
+	defer unlock()
+
 	// compose down first: removing the compose file of running containers
 	// leaves them running with nothing to manage them from.
 	if _, err := os.Stat(composePath); err == nil {
-		output, downErr := cmdutil.RunMedium("docker_compose",
-			"compose", "--project-directory", dir, "-f", composePath, "down")
+		output, downErr := cmdutil.RunMedium("docker_compose", stackComposeArgs(name, dir, "down", "--remove-orphans")...)
 		if downErr != nil {
 			audit.LogCommand(audit.LevelWarn, user, "stack_down",
 				[]string{name}, false, time.Since(start), downErr)
@@ -576,31 +588,38 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromRequest(r)
 	start := time.Now()
 
+	unlock, ok := lockStack(req.Name)
+	if !ok {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' is busy with another operation", req.Name), http.StatusConflict)
+		return
+	}
+	defer unlock()
+
 	var args []string
 	switch req.Action {
 	case "start":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans"}
+		args = stackComposeArgs(req.Name, dir, "up", "-d", "--remove-orphans")
 	case "stop":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "stop"}
+		args = stackComposeArgs(req.Name, dir, "stop")
 	case "restart":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "restart"}
+		args = stackComposeArgs(req.Name, dir, "restart")
 	case "down":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "down", "--remove-orphans"}
-	case "update":
-		// Pull the services' images, then recreate the containers whose
-		// image changed.
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans"}
+		args = stackComposeArgs(req.Name, dir, "down", "--remove-orphans")
 	}
 
 	var output []byte
 	var composeErr error
 	if req.Action == "update" {
-		output, composeErr = cmdutil.RunSlow("docker_compose", "compose", "--project-directory", dir, "-f", composePath, "pull")
-	}
-	if composeErr == nil {
-		var out []byte
-		out, composeErr = cmdutil.RunSlow("docker_compose", args...)
-		output = append(output, out...)
+		// Pull, recreate, wait until up; otherwise back to the previous images.
+		var lines []string
+		res := updateStack(context.Background(), func(s string) { lines = append(lines, s) }, req.Name, stackUpdateOptionsFor(req.Name))
+		recordStackUpdate(req.Name, res)
+		output = []byte(strings.Join(lines, "\n"))
+		if res.Error != "" {
+			composeErr = fmt.Errorf("%s", res.Error)
+		}
+	} else {
+		output, composeErr = cmdutil.RunSlow("docker_compose", args...)
 	}
 	duration := time.Since(start)
 
@@ -887,4 +906,3 @@ func shellSplit(s string) []string {
 	}
 	return args
 }
-

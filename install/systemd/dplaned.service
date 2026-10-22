@@ -48,10 +48,12 @@ LimitNOFILE=65536
 TasksMax=4096
 
 # OOM Protection - prevent daemon from killing the NAS
-# 512MB should be more than enough for metadata management;
-# if it exceeds this, something is wrong (memory leak, runaway indexing)
-MemoryMax=512M
-MemoryHigh=384M
+# The cap covers the daemon and the jobs it runs (rsync, rclone, docker
+# compose, zfs send); 1G as on NixOS (services.dplaneos.memoryMax). When the
+# kernel kills one job for memory the daemon keeps running (OOMPolicy).
+MemoryMax=1G
+MemoryHigh=900M
+OOMPolicy=continue
 OOMScoreAdjust=-900
 
 # Logging

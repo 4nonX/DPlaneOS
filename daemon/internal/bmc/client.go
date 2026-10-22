@@ -31,7 +31,9 @@ func Probe(ctx context.Context, creds Credentials, pin PinnedCert) (Info, error)
 		if err != nil {
 			return Info{}, fmt.Errorf("Redfish client: %w", err)
 		}
-		var root struct{ RedfishVersion string `json:"RedfishVersion"` }
+		var root struct {
+			RedfishVersion string `json:"RedfishVersion"`
+		}
 		if err := rc.get(ctx, "/redfish/v1/", &root); err != nil {
 			return Info{}, fmt.Errorf(
 				"Redfish probe failed against enrolled certificate: %w. "+
@@ -51,7 +53,7 @@ func Probe(ctx context.Context, creds Credentials, pin PinnedCert) (Info, error)
 	if info, err := probeILO4Unauthenticated(ctx, creds.Host); err == nil {
 		return info, nil
 	}
-	if err := probeIPMI(creds.Host); err == nil {
+	if err := probeIPMI(creds.Host, creds.Username, creds.Password); err == nil {
 		return Info{Protocol: ProtocolIPMI, Vendor: "Generic", Model: "IPMI", Hostname: creds.Host}, nil
 	}
 

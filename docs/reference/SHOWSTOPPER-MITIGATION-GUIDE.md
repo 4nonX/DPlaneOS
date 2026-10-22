@@ -74,18 +74,18 @@ Resource profile:
 
 ### Current State
 
-Updates use an A/B slot system. The new system closure is written to the inactive slot while the running slot is untouched. After reboot, a post-boot health check fires 90 seconds after startup and evaluates four conditions:
+An update builds the new release as a new NixOS generation and reboots into it. After the boot, a check (up to five minutes) verifies:
 
-1. Daemon API responds 200 within 10 seconds (`GET http://localhost/api/system/health` via nginx)
-2. All ZFS pools are ONLINE (`zpool list` exits 0)
-3. `/persist` is an active mountpoint
-4. If SMB shares are configured, `smbd` is running
+1. The daemon answers on its socket (`/api/system/health`)
+2. nginx runs, and PostgreSQL if the database is local
+3. Every pool imported before the update is imported again
+4. If SMB shares are enabled, Samba runs
 
-If all checks pass, the update is committed. Any single failure triggers an automatic revert to the previous slot immediately - no human intervention required. The system never enters a partially-upgraded state.
+If all checks pass, the update is kept. Any failure makes the previous generation the boot default again, restores the flake and reboots - no human intervention required. See [Updates](../admin/OTA-UPDATES.md).
 
 **To roll back manually** (if a regression is discovered after the health check already passed):
 ```bash
-sudo dplaneos-ota-update --revert
+sudo nixos-rebuild switch --rollback   # then set /etc/nixos/flake.nix back (OTA-UPDATES.md)
 ```
 
 If the system will not boot at all: select the previous NixOS generation from the systemd-boot menu at startup, press `d` to set it as default, then `Enter` to boot.

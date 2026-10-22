@@ -3,16 +3,21 @@
  *
  * Tabs: Interfaces | VLANs | Bonding | DNS & NTP
  *
+ * Every interface, VLAN, bond and DNS change applies at once and is reverted
+ * unless confirmed (PendingChangeBanner).
+ *
  * Calls:
- *   GET  /api/system/network                          → { success, interfaces[], dns[], gateway }
- *   PUT  /api/system/network { action:'configure', interface, dhcp, ip, netmask, gateway }
- *   PUT  /api/system/network { action:'set_dns', nameservers[] }
- *   POST /api/network/confirm                         → keep the change (else it reverts)
- *   GET  /api/network/vlan                            → { success, vlans: string }
- *   POST /api/network/vlan   { name, parent, id }     → create VLAN
- *   POST /api/network/bond   { name, mode, slaves[] } → create bond
- *   GET  /api/system/ntp                              → { success, servers[], synced, details }
- *   POST /api/system/ntp     { servers[] }
+ *   GET    /api/system/network                     → { success, interfaces[], routes[], dns: { nameservers, search, configured? } }
+ *   PUT    /api/system/network { action:'configure', interface, dhcp, ip, netmask, gateway }
+ *   PUT    /api/system/network { action:'set_dns', nameservers[], search[] }
+ *   GET    /api/network/vlan                       → { success, vlans: [{ name, parent?, vlan_id?, managed, up }] }
+ *   POST   /api/network/vlan   { parent, vlan_id, ip?, dhcp? }
+ *   DELETE /api/network/vlan   { interface }
+ *   GET    /api/network/bond                       → { success, bonds: [{ name, mode, slaves, state, managed }] }
+ *   POST   /api/network/bond   { name, mode, slaves[], ip?, dhcp? }
+ *   DELETE /api/network/bond/{name}
+ *   GET    /api/system/ntp                         → { success, servers[], synced, details }
+ *   POST   /api/system/ntp     { servers[] }
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -26,6 +31,7 @@ import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { PendingChangeBanner, useChangeApplied } from '@/components/network/PendingChangeBanner'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,14 +50,18 @@ interface Iface {
   up?:      boolean
   state?:   string
   type?:    string
+  managed?: boolean   // configured by DPlaneOS (else by the system configuration)
+  member_of?: string  // bond this interface belongs to
 }
 
 interface NetworkResponse {
   success:    boolean
   interfaces: Iface[]
-  dns?:       string[]
-  gateway?:   string
+  dns?:       { nameservers?: string[]; search?: string[]; configured?: { servers?: string[]; search?: string[] } }
 }
+
+interface VLANInfo { name: string; parent?: string; vlan_id?: number; managed: boolean; up: boolean }
+interface BondInfo { name: string; mode: string; slaves: string[] | null; state: string; managed: boolean }
 
 interface NTPResponse {
   success: boolean
@@ -71,7 +81,8 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
   onClose: () => void
   onDone:  () => void
 }) {
-  const [dhcp,    setDhcp]    = useState(iface.dhcp ?? true)
+  const applied = useChangeApplied()
+  const [dhcp,    setDhcp]    = useState(iface.dhcp ?? false)
   const [ip,      setIp]      = useState(iface.ip      ?? '')
   const [netmask, setNetmask] = useState(iface.netmask ?? '255.255.255.0')
   const [gateway, setGateway] = useState(iface.gateway ?? '')
@@ -85,7 +96,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
       netmask:   dhcp ? undefined : netmask   || undefined,
       gateway:   dhcp ? undefined : gateway   || undefined,
     })),
-    onSuccess: () => { toast.success(`${iface.name} - changes applied`); onDone(); onClose() },
+    onSuccess: () => { applied(`${iface.name}: applied - confirm to keep it`); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -129,7 +140,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
 
       <div style={{ padding: '10px 14px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--info)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <Icon name="info" size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-        Network changes apply immediately. You have <strong>30 seconds</strong> to confirm before the system reverts. Ensure you will still have browser access at the new address.
+        Network changes apply immediately. You have <strong>90 seconds</strong> to confirm before the system reverts. If you change the address you are connected to, open the interface on the new address and confirm there.
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -143,46 +154,12 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
 }
 
 // ---------------------------------------------------------------------------
-// ConfirmBanner - shown after a network/apply, counts down 30 s
-// ---------------------------------------------------------------------------
-
-function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
-  const [secs, setSecs] = useState(30)
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    timer.current = setInterval(() => {
-      setSecs(prev => {
-        if (prev <= 1) { clearInterval(timer.current!); onDismiss(); return 0 }
-        return prev - 1
-      })
-    }, 1000)
-    return () => clearInterval(timer.current!)
-  }, [onDismiss])
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
-      <Icon name="timer" size={22} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, color: 'var(--warning)' }}>Network changes applied</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-reverting in {secs}s - confirm to keep the new configuration</div>
-      </div>
-      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'var(--warning)' }}>
-        <Icon name="check" size={15} />Confirm
-      </button>
-      <button onClick={onDismiss} className="btn btn-ghost">Discard</button>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // InterfacesTab
 // ---------------------------------------------------------------------------
 
 function InterfacesTab() {
   const qc = useQueryClient()
-  const [configIface,    setConfigIface]    = useState<Iface | null>(null)
-  const [pendingConfirm, setPendingConfirm] = useState(false)
+  const [configIface, setConfigIface] = useState<Iface | null>(null)
 
   const netQ = useQuery({
     queryKey: ['network', 'info'],
@@ -190,31 +167,14 @@ function InterfacesTab() {
     refetchInterval: 15_000,
   })
 
-  const confirm = useMutation({
-    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/confirm', {})),
-    onSuccess: () => { toast.success('Network configuration confirmed'); setPendingConfirm(false) },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  function handleConfigured() {
-    setPendingConfirm(true)
-    qc.invalidateQueries({ queryKey: ['network', 'info'] })
-  }
-
-  const ifaces = netQ.data?.interfaces ?? []
+  // Container plumbing is not configured here.
+  const ifaces = (netQ.data?.interfaces ?? []).filter(i => i.type !== 'loopback' && !/^(veth|docker|br-)/.test(i.name))
 
   if (netQ.isLoading) return <Skeleton height={300} />
   if (netQ.isError)   return <ErrorState error={netQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['network', 'info'] })} />
 
   return (
     <>
-      {pendingConfirm && (
-        <ConfirmBanner
-          onConfirm={() => confirm.mutate()}
-          onDismiss={() => setPendingConfirm(false)}
-        />
-      )}
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {ifaces.map(iface => {
           const isUp = iface.up !== false && iface.state !== 'down'
@@ -233,6 +193,9 @@ function InterfacesTab() {
                   {iface.dhcp && (
                     <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'rgba(99,102,241,0.12)', color: '#818cf8', fontSize: 10, fontWeight: 700 }}>DHCP</span>
                   )}
+                  {iface.member_of && (
+                    <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'var(--surface)', color: 'var(--text-secondary)', fontSize: 10, fontWeight: 700 }}>IN {iface.member_of.toUpperCase()}</span>
+                  )}
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: isUp ? 'var(--success)' : 'var(--text-tertiary)', boxShadow: isUp ? '0 0 5px var(--success)' : 'none', display: 'inline-block' }} />
                 </div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -241,12 +204,19 @@ function InterfacesTab() {
                   {iface.mac     && <span style={{ fontFamily: 'var(--font-mono)' }}>{iface.mac}</span>}
                   {iface.speed   && <span>{iface.speed}</span>}
                   {iface.mtu     && <span>MTU {iface.mtu}</span>}
+                  <span title={iface.managed ? 'Configured on this page' : 'Configured by the system configuration (DHCP by default)'}>
+                    {iface.managed ? 'configured here' : 'system default'}
+                  </span>
                 </div>
               </div>
 
-              <button onClick={() => setConfigIface(iface)} className="btn btn-ghost">
-                <Icon name="settings" size={14} />Configure
-              </button>
+              {iface.member_of ? (
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>configure {iface.member_of}</span>
+              ) : (
+                <button onClick={() => setConfigIface(iface)} className="btn btn-ghost">
+                  <Icon name="settings" size={14} />Configure
+                </button>
+              )}
             </div>
           )
         })}
@@ -259,7 +229,7 @@ function InterfacesTab() {
         <ConfigureIfaceModal
           iface={configIface}
           onClose={() => setConfigIface(null)}
-          onDone={handleConfigured}
+          onDone={() => qc.invalidateQueries({ queryKey: ['network', 'info'] })}
         />
       )}
     </>
@@ -268,107 +238,113 @@ function InterfacesTab() {
 
 // ---------------------------------------------------------------------------
 // VLANsTab
-// POST /api/network/vlan { name, parent, id }
-// GET  /api/network/vlan → { success, vlans: string }  (raw text from daemon)
 // ---------------------------------------------------------------------------
 
 function VLANsTab() {
   const qc = useQueryClient()
+  const applied = useChangeApplied()
   const [parent, setParent] = useState('')
   const [vlanId, setVlanId] = useState('')
+  const [ip, setIp] = useState('')
+  const [dhcp, setDhcp] = useState(false)
   const { confirm, ConfirmDialog } = useConfirm()
 
   const netQ = useQuery({
     queryKey: ['network', 'info'],
     queryFn: ({ signal }) => api.get<NetworkResponse>('/api/system/network', signal),
   })
-
   const vlanQ = useQuery({
     queryKey: ['network', 'vlan'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; vlans: string }>('/api/network/vlan', signal),
+    queryFn: ({ signal }) => api.get<{ success: boolean; vlans: VLANInfo[] }>('/api/network/vlan', signal),
   })
 
   const createVLAN = useMutation({
     mutationFn: async () => {
       if (!parent.trim() || !vlanId) throw new Error('Parent interface and VLAN ID are required')
-      // Convention: parent.id (e.g. eth0.10). Failures come back as 200 { success: false }.
-      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/vlan', { parent: parent.trim(), vlan_id: Number(vlanId) }))
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/vlan', {
+        parent: parent.trim(), vlan_id: Number(vlanId), ip: dhcp ? undefined : ip.trim() || undefined, dhcp,
+      }))
     },
     onSuccess: () => {
-      toast.success('VLAN created')
-      setVlanId('')
-      qc.invalidateQueries({ queryKey: ['network', 'vlan'] })
-      qc.invalidateQueries({ queryKey: ['network', 'info'] })
+      applied(`VLAN ${parent}.${vlanId}: applied - confirm to keep it`)
+      setVlanId(''); setIp(''); setDhcp(false)
+      qc.invalidateQueries({ queryKey: ['network'] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const deleteVLAN = useMutation({
-    mutationFn: (iface: string) => api.delete('/api/network/vlan', { interface: iface }),
-    onSuccess: () => {
-      toast.success('VLAN deleted')
-      qc.invalidateQueries({ queryKey: ['network', 'vlan'] })
-      qc.invalidateQueries({ queryKey: ['network', 'info'] })
-    },
+    mutationFn: async (iface: string) => ensureOk(await api.delete<{ success?: boolean; error?: string }>('/api/network/vlan', { interface: iface })),
+    onSuccess: () => { applied(); qc.invalidateQueries({ queryKey: ['network'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
-  // Physical interfaces only (no existing VLANs as parent)
-  const physIfaces = (netQ.data?.interfaces ?? []).filter(i => !i.name.includes('.'))
-
-  const vlans = (vlanQ.data as unknown as { vlans?: { name: string; index: number; flags: string }[] })?.vlans ?? []
+  // Parents: physical interfaces and bonds, not VLANs or bond members.
+  const parents = (netQ.data?.interfaces ?? []).filter(i =>
+    !i.name.includes('.') && !i.member_of && i.type !== 'loopback' && !/^(veth|docker|br-)/.test(i.name))
+  const vlans = vlanQ.data?.vlans ?? []
 
   return (
     <>
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create VLAN Interface</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 12, alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 1fr auto auto', gap: 12, alignItems: 'flex-end' }}>
           <label className="field">
             <span className="field-label">Parent Interface</span>
             <select value={parent} onChange={e => setParent(e.target.value)} className="input" style={{ appearance: 'none' }}>
               <option value="">Select…</option>
-              {physIfaces.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
+              {parents.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
             </select>
           </label>
           <label className="field">
             <span className="field-label">VLAN ID</span>
             <input type="number" value={vlanId} onChange={e => setVlanId(e.target.value)} placeholder="10" min={1} max={4094} className="input" />
           </label>
+          <label className="field">
+            <span className="field-label">Address (optional)</span>
+            <input value={ip} onChange={e => setIp(e.target.value)} disabled={dhcp} placeholder="10.0.10.5/24" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 'var(--text-sm)' }}>
+            <input type="checkbox" checked={dhcp} onChange={e => setDhcp(e.target.checked)} />DHCP
+          </label>
           <button onClick={() => createVLAN.mutate()} disabled={createVLAN.isPending || !parent || !vlanId} className="btn btn-primary" style={{ marginBottom: 4 }}>
             <Icon name="add" size={15} />{createVLAN.isPending ? 'Creating…' : 'Create VLAN'}
           </button>
         </div>
         <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: 8 }}>
-          Interface name will follow the format <code>parent.id</code> (e.g. eth0.10)
+          The interface is named <code>parent.id</code> (e.g. eth0.10). The parent keeps its own address.
         </div>
       </div>
 
       <div style={{ fontWeight: 700, marginBottom: 12 }}>Current VLANs</div>
       {vlanQ.isLoading && <Skeleton height={80} />}
       {vlanQ.isError   && <ErrorState error={vlanQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['network', 'vlan'] })} />}
-      
+
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
             <tr>
-              {['Interface', 'Index', 'Flags', 'Actions'].map(h => <th key={h}>{h}</th>)}
+              {['Interface', 'Parent', 'VLAN ID', 'State', 'Actions'].map(h => <th key={h}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {vlans.map((v) => (
+            {vlans.map(v => (
               <tr key={v.name}>
                 <td style={{ fontWeight: 600 }}>{v.name}</td>
-                <td>{v.index}</td>
-                <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{v.flags}</td>
+                <td>{v.parent ?? '-'}</td>
+                <td>{v.vlan_id ?? '-'}</td>
+                <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{v.up ? 'up' : 'down'}</td>
                 <td>
-                  <button onClick={async () => { if (await confirm({ title: `Delete VLAN "${v.name}"?`, danger: true, confirmLabel: 'Delete' })) { deleteVLAN.mutate(v.name) } }} disabled={deleteVLAN.isPending} className="btn btn-xs btn-danger">
-                    <Icon name="delete" size={12} />Remove
-                  </button>
+                  {v.managed ? (
+                    <button onClick={async () => { if (await confirm({ title: `Delete VLAN "${v.name}"?`, danger: true, confirmLabel: 'Delete' })) { deleteVLAN.mutate(v.name) } }} disabled={deleteVLAN.isPending} className="btn btn-xs btn-danger">
+                      <Icon name="delete" size={12} />Remove
+                    </button>
+                  ) : <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>system configuration</span>}
                 </td>
               </tr>
             ))}
             {vlans.length === 0 && !vlanQ.isLoading && (
-              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-tertiary)' }}>No VLANs configured</td></tr>
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-tertiary)' }}>No VLANs configured</td></tr>
             )}
           </tbody>
         </table>
@@ -380,56 +356,62 @@ function VLANsTab() {
 
 // ---------------------------------------------------------------------------
 // BondingTab
-// POST /api/network/bond { name, mode, slaves: string[] }
 // ---------------------------------------------------------------------------
+
+const BOND_MODES = [
+  { value: 'active-backup', label: 'Active-Backup  (failover, 1 active at a time)' },
+  { value: '802.3ad',       label: 'LACP / 802.3ad  (requires switch support)' },
+  { value: 'balance-rr',    label: 'Round-Robin  (balance-rr)' },
+  { value: 'balance-xor',   label: 'XOR  (balance-xor)' },
+  { value: 'balance-tlb',   label: 'Adaptive TX Load Balancing  (balance-tlb)' },
+  { value: 'balance-alb',   label: 'Adaptive Load Balancing  (balance-alb)' },
+  { value: 'broadcast',     label: 'Broadcast' },
+]
 
 function BondingTab() {
   const qc = useQueryClient()
-  const [bondName,   setBondName]   = useState('bond0')
-  const [mode,       setMode]       = useState('active-backup')
-  const [slavesStr,  setSlavesStr]  = useState('')
+  const applied = useChangeApplied()
+  const [bondName, setBondName] = useState('bond0')
+  const [mode, setMode] = useState('active-backup')
+  const [members, setMembers] = useState<string[]>([])
+  const [ip, setIp] = useState('')
+  const [dhcp, setDhcp] = useState(false)
   const { confirm, ConfirmDialog } = useConfirm()
 
   const netQ = useQuery({
     queryKey: ['network', 'info'],
     queryFn: ({ signal }) => api.get<NetworkResponse>('/api/system/network', signal),
   })
+  const bondQ = useQuery({
+    queryKey: ['network', 'bond'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; bonds: BondInfo[] }>('/api/network/bond', signal),
+  })
 
   const createBond = useMutation({
     mutationFn: async () => {
-      const slaves = slavesStr.split(',').map(s => s.trim()).filter(Boolean)
       if (!bondName.trim()) throw new Error('Bond name is required')
-      if (slaves.length < 2) throw new Error('At least 2 slave interfaces are required')
-      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/bond', { name: bondName.trim(), mode, slaves }))
+      if (members.length === 0) throw new Error('Choose at least one interface')
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/bond', {
+        name: bondName.trim(), mode, slaves: members, ip: dhcp ? undefined : ip.trim() || undefined, dhcp,
+      }))
     },
     onSuccess: () => {
-      toast.success('Bond interface created')
-      setSlavesStr('')
-      qc.invalidateQueries({ queryKey: ['network', 'info'] })
+      applied(`Bond ${bondName}: applied - confirm to keep it`)
+      setMembers([]); setIp(''); setDhcp(false)
+      qc.invalidateQueries({ queryKey: ['network'] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const deleteBond = useMutation({
-    mutationFn: (name: string) => api.delete(`/api/network/bond/${name}`),
-    onSuccess: () => {
-      toast.success('Bond deleted')
-      qc.invalidateQueries({ queryKey: ['network', 'info'] })
-    },
+    mutationFn: async (name: string) => ensureOk(await api.delete<{ success?: boolean; error?: string }>(`/api/network/bond/${name}`)),
+    onSuccess: () => { applied(); qc.invalidateQueries({ queryKey: ['network'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const BOND_MODES = [
-    { value: 'active-backup', label: 'Active-Backup  (failover, 1 active at a time)' },
-    { value: 'balance-rr',    label: 'Round-Robin  (balance-rr)' },
-    { value: '802.3ad',       label: 'LACP / 802.3ad  (requires switch support)' },
-    { value: 'balance-tlb',   label: 'Adaptive TX Load Balancing  (balance-tlb)' },
-    { value: 'balance-alb',   label: 'Adaptive Load Balancing  (balance-alb)' },
-  ]
-
-  const existingBonds = (netQ.data?.interfaces ?? []).filter(i =>
-    i.type === 'bond' || i.name.startsWith('bond')
-  )
+  const candidates = (netQ.data?.interfaces ?? []).filter(i =>
+    (i.type === 'ethernet' || !i.type) && !i.name.includes('.') && !i.member_of && !/^(veth|docker|br-)/.test(i.name))
+  const bonds = bondQ.data?.bonds ?? []
 
   return (
     <>
@@ -448,36 +430,58 @@ function BondingTab() {
               </select>
             </label>
           </div>
-          <label className="field">
-            <span className="field-label">Slave Interfaces</span>
-            <input value={slavesStr} onChange={e => setSlavesStr(e.target.value)} placeholder="eth0, eth1" className="input" />
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Comma-separated. Minimum 2 interfaces required.</span>
-          </label>
+          <div className="field">
+            <span className="field-label">Member Interfaces</span>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              {candidates.map(i => (
+                <label key={i.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)' }}>
+                  <input type="checkbox" checked={members.includes(i.name)}
+                    onChange={e => setMembers(m => e.target.checked ? [...m, i.name] : m.filter(x => x !== i.name))} />
+                  {i.name}{i.ip ? <span style={{ color: 'var(--text-tertiary)' }}> ({i.ip})</span> : null}
+                </label>
+              ))}
+              {candidates.length === 0 && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>No free interfaces</span>}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 14, alignItems: 'flex-end' }}>
+            <label className="field">
+              <span className="field-label">Address (optional)</span>
+              <input value={ip} onChange={e => setIp(e.target.value)} disabled={dhcp} placeholder="192.168.1.10/24" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 'var(--text-sm)' }}>
+              <input type="checkbox" checked={dhcp} onChange={e => setDhcp(e.target.checked)} />DHCP
+            </label>
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            The members lose their own addresses. Without an address here the bond takes over the configuration of the first member that has one, so a bond made of the interface you are connected through stays reachable (DHCP may hand out a new address: the bond has its own MAC address).
+          </div>
           <div>
-            <button onClick={() => createBond.mutate()} disabled={createBond.isPending} className="btn btn-primary">
+            <button onClick={() => createBond.mutate()} disabled={createBond.isPending || members.length === 0} className="btn btn-primary">
               <Icon name="cable" size={15} />{createBond.isPending ? 'Creating…' : 'Create Bond'}
             </button>
           </div>
         </div>
       </div>
 
-      {existingBonds.length > 0 && (
+      {bonds.length > 0 && (
         <>
-          <div style={{ fontWeight: 700, marginBottom: 12 }}>Active Bond Interfaces</div>
+          <div style={{ fontWeight: 700, marginBottom: 12 }}>Bond Interfaces</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {existingBonds.map(b => (
+            {bonds.map(b => (
               <div key={b.name} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 'var(--radius-md)' }}>
                 <Icon name="device_hub" size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{b.name}</div>
+                  <div style={{ fontWeight: 700 }}>{b.name} <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{b.mode} · {b.state}</span></div>
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                    {b.ip || 'No IP'}{b.speed ? ` · ${b.speed}` : ''}
-                    {b.mtu ? ` · MTU ${b.mtu}` : ''}
+                    {(b.slaves ?? []).length ? (b.slaves ?? []).join(', ') : 'no members'}
+                    {(() => { const i = netQ.data?.interfaces.find(x => x.name === b.name); return i?.ip ? ` · ${i.ip}` : '' })()}
                   </div>
                 </div>
-                <button onClick={async () => { if (await confirm({ title: `Delete bond "${b.name}"?`, danger: true, confirmLabel: 'Delete' })) { deleteBond.mutate(b.name) } }} disabled={deleteBond.isPending} className="btn btn-sm btn-danger">
-                  <Icon name="delete" size={13} />Delete
-                </button>
+                {b.managed ? (
+                  <button onClick={async () => { if (await confirm({ title: `Delete bond "${b.name}"?`, message: 'Its members go back to the system configuration (DHCP by default).', danger: true, confirmLabel: 'Delete' })) { deleteBond.mutate(b.name) } }} disabled={deleteBond.isPending} className="btn btn-sm btn-danger">
+                    <Icon name="delete" size={13} />Delete
+                  </button>
+                ) : <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>system configuration</span>}
               </div>
             ))}
           </div>
@@ -490,13 +494,11 @@ function BondingTab() {
 
 // ---------------------------------------------------------------------------
 // DnsNtpTab
-// POST /api/network/apply { action:'set_dns', dns:[] }
-// GET  /api/system/ntp → { servers[], synced, details }
-// POST /api/system/ntp { servers[] }
 // ---------------------------------------------------------------------------
 
 function DnsNtpTab() {
   const qc = useQueryClient()
+  const applied = useChangeApplied()
 
   const netQ = useQuery({
     queryKey: ['network', 'info'],
@@ -509,20 +511,24 @@ function DnsNtpTab() {
   })
 
   const [dnsEdit, setDnsEdit] = useState<string | null>(null)
+  const [searchEdit, setSearchEdit] = useState<string | null>(null)
   const [ntpEdit, setNtpEdit] = useState<string | null>(null)
 
-  // Effective values: user edit OR server value (no seeding effect needed)
-  const dnsStr = dnsEdit ?? netQ.data?.dns?.join(', ') ?? ''
+  // Effective values: user edit OR server value (configured here, else in use)
+  const dns = netQ.data?.dns
+  const dnsStr = dnsEdit ?? (dns?.configured?.servers ?? dns?.nameservers ?? []).join(', ')
+  const searchStr = searchEdit ?? (dns?.configured?.search ?? dns?.search ?? []).filter(d => d !== '.').join(', ')
   const ntpStr = ntpEdit ?? ntpQ.data?.servers?.join(', ') ?? ''
 
   const saveDns = useMutation({
     mutationFn: async () => {
       const nameservers = dnsStr.split(',').map(s => s.trim()).filter(Boolean)
-      return ensureOk(await api.put<{ success?: boolean; error?: string }>('/api/system/network', { action: 'set_dns', nameservers }))
+      const search = searchStr.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+      return ensureOk(await api.put<{ success?: boolean; error?: string }>('/api/system/network', { action: 'set_dns', nameservers, search }))
     },
     onSuccess: () => {
-      toast.success('DNS servers saved')
-      setDnsEdit(null)
+      applied('DNS: applied - confirm to keep it')
+      setDnsEdit(null); setSearchEdit(null)
       qc.invalidateQueries({ queryKey: ['network', 'info'] })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -551,19 +557,26 @@ function DnsNtpTab() {
           <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>DNS Nameservers</div>
         </div>
         {netQ.isLoading ? <Skeleton height={56} /> : (
-          <>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <input value={dnsStr} onChange={e => setDnsEdit(e.target.value)}
-                placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"
-                className="input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }} />
+          <div style={{ display: 'grid', gap: 10 }}>
+            <label className="field">
+              <span className="field-label">Servers</span>
+              <input value={dnsStr} onChange={e => setDnsEdit(e.target.value)} placeholder="192.168.1.1, 9.9.9.9"
+                className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+            </label>
+            <label className="field">
+              <span className="field-label">Search domains (optional)</span>
+              <input value={searchStr} onChange={e => setSearchEdit(e.target.value)} placeholder="home.lan"
+                className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                {dns?.configured ? 'Set here; used for all interfaces.' : 'In use now (from DHCP or the system configuration).'}
+              </span>
               <button onClick={() => saveDns.mutate()} disabled={saveDns.isPending} className="btn btn-primary">
                 {saveDns.isPending ? 'Saving…' : 'Save'}
               </button>
             </div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 7 }}>
-              Comma-separated list of nameserver addresses
-            </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -753,6 +766,8 @@ export function NetworkPage() {
           </button>
         ))}
       </div>
+
+      <PendingChangeBanner />
 
       {tab === 'interfaces' && <InterfacesTab />}
       {tab === 'vlans'      && <VLANsTab />}

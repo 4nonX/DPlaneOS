@@ -140,14 +140,23 @@ func SanitizeDomainJoin(err error, rawOutput string) UserError {
 	combined += " " + rawOutput
 
 	switch {
+	case contains(combined, "ADS support not compiled in"):
+		return userErr("The installed Samba has no Active Directory support.",
+			"samba_no_ads", "Rebuild the system with the default services.dplaneos.samba.package.")
+	case contains(combined, "Invalid credentials", "attempted logon is invalid", "NT_STATUS_LOGON_FAILURE", "NT_STATUS_WRONG_PASSWORD", "NT_STATUS_NO_SUCH_USER"):
+		return userErr("The domain refused the username or password.",
+			"invalid_credentials",
+			"Verify the username and password are correct for this domain.")
+	// before the kinit case (skew errors come from kinit too); not "time":
+	// matching is case-insensitive and "timeout"/"runtime" are not skew
+	case contains(combined, "clock skew", "KRB_AP_ERR_SKEW", "time skew"):
+		return userErr("System clock is too far out of sync with the domain controller. Kerberos requires clocks within 5 minutes.",
+			"ntp_skew",
+			"Enable NTP synchronization under Settings → System → Time.")
 	case contains(combined, "KDC_ERR_C_PRINCIPAL_UNKNOWN", "KDC_ERR_PREAUTH_FAILED", "kinit"):
 		return userErr("Kerberos authentication failed. Check the domain admin credentials.",
 			"kerberos_auth_failed",
 			"Verify the username and password are correct for this domain.")
-	case contains(combined, "NTP", "clock skew", "time", "KRB_AP_ERR_SKEW"):
-		return userErr("System clock is too far out of sync with the domain controller. Kerberos requires clocks within 5 minutes.",
-			"ntp_skew",
-			"Enable NTP synchronization under Settings → System → Time.")
 	case contains(combined, "No logon servers", "domain not found", "NETLOGON"):
 		return userErr("Cannot find the domain controller. Check the domain name and network connectivity.",
 			"domain_not_found",

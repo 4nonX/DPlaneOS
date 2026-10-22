@@ -19,7 +19,9 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := cmdutil.RunFast("systemctl", "reload", "smbd")
+	// smbcontrol reaches smbd whatever its unit is called (samba-smbd on
+	// NixOS: "systemctl reload smbd" named a unit that does not exist).
+	output, err := cmdutil.RunFast("smbcontrol", "all", "reload-config")
 
 	audit.LogActivity(user, "samba_reload", map[string]any{
 		"success": err == nil,
@@ -105,4 +107,3 @@ func ListNFSExports(w http.ResponseWriter, r *http.Request) {
 		"output":  string(output),
 	})
 }
-

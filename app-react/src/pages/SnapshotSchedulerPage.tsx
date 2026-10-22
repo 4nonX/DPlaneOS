@@ -4,7 +4,7 @@
  * Calls (matching daemon routes exactly):
  *   GET  /api/snapshots/schedules
  *   POST /api/snapshots/schedules     (save full schedules array)
- *   POST /api/snapshots/run-now       (body: { dataset, retain })
+ *   POST /api/snapshots/run-now       (body: { dataset, prefix, recursive })
  *   GET  /api/zfs/datasets            (populate dataset picker)
  *   GET  /api/zfs/snapshots           (list existing snapshots)
  *   GET  /api/replication/schedules   (for trigger-on-snapshot selector)
@@ -27,13 +27,20 @@ import { Tooltip } from '@/components/ui/Tooltip'
 
 interface SnapshotSchedule {
   dataset:              string
-  frequency:            'hourly' | 'daily' | 'weekly' | 'monthly'
+  frequency:            'frequent' | 'hourly' | 'daily' | 'weekly' | 'monthly'
   retention:            number
   retention_days?:      number   // days-based retention (in addition to count)
   enabled:              boolean
-  prefix?:              string
-  trigger_replication?: boolean  // show replication trigger toggle in UI
+  prefix?:              string   // empty: auto-<frequency>
+  recursive?:           boolean  // snapshot the child datasets too
+  trigger_replication?: boolean  // start a replication schedule after each snapshot
   replication_id?:      string   // which replication schedule to trigger
+}
+
+// The prefix a schedule's snapshots get; each frequency has its own by
+// default so one schedule's pruning never removes another's snapshots.
+function effectivePrefix(s: Pick<SnapshotSchedule, 'prefix' | 'frequency'>): string {
+  return s.prefix || `auto-${s.frequency}`
 }
 
 interface SchedulesResponse { success: boolean; schedules: SnapshotSchedule[] }
@@ -56,10 +63,10 @@ interface ReplSchedulesResponse { success: boolean; schedules: ReplicationSchedu
 // ---------------------------------------------------------------------------
 
 const FREQ_LABELS: Record<SnapshotSchedule['frequency'], string> = {
-  hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly',
+  frequent: 'Every 15 minutes', hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly',
 }
 const FREQ_ICONS: Record<SnapshotSchedule['frequency'], string> = {
-  hourly: 'schedule', daily: 'today', weekly: 'date_range', monthly: 'calendar_month',
+  frequent: 'timer', hourly: 'schedule', daily: 'today', weekly: 'date_range', monthly: 'calendar_month',
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +84,8 @@ function ScheduleModal({ datasets, replSchedules, initial, onClose, onSaved }: {
   const [frequency,         setFrequency]          = useState<SnapshotSchedule['frequency']>(initial?.frequency ?? 'daily')
   const [retention,         setRetention]          = useState(initial?.retention ?? 7)
   const [retentionDays,     setRetentionDays]      = useState(initial?.retention_days ?? 0)
-  const [prefix,            setPrefix]             = useState(initial?.prefix ?? 'auto')
+  const [prefix,            setPrefix]             = useState(initial?.prefix ?? '')
+  const [recursive,         setRecursive]          = useState(initial?.recursive ?? false)
   const [triggerRepl,       setTriggerRepl]        = useState(initial?.trigger_replication ?? false)
   const [replicationId,     setReplicationId]      = useState(initial?.replication_id ?? replSchedules[0]?.id ?? '')
 
@@ -91,7 +99,8 @@ function ScheduleModal({ datasets, replSchedules, initial, onClose, onSaved }: {
       retention,
       retention_days: retentionDays > 0 ? retentionDays : undefined,
       enabled: initial ? initial.enabled : true,
-      prefix,
+      prefix: prefix.trim() || undefined,
+      recursive: recursive || undefined,
       trigger_replication: triggerRepl || undefined,
       replication_id: triggerRepl ? replicationId : undefined,
     }
@@ -141,8 +150,18 @@ function ScheduleModal({ datasets, replSchedules, initial, onClose, onSaved }: {
         </div>
 
         <label className="field">
-          <span className="field-label">Prefix</span>
-          <input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="auto" className="input" />
+          <span className="field-label">Prefix <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(empty = {effectivePrefix({ frequency })}; Windows Previous Versions lists the auto-… prefixes)</span></span>
+          <input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder={effectivePrefix({ frequency })} className="input" />
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={recursive}
+            onChange={e => setRecursive(e.target.checked)}
+            style={{ accentColor: 'var(--primary)', width: 16, height: 16 }}
+          />
+          <span style={{ fontSize: 'var(--text-sm)' }}>Include child datasets (one atomic snapshot of the whole tree)</span>
         </label>
 
         {/* Trigger replication toggle */}
@@ -219,7 +238,8 @@ function ScheduleRow({ schedule, index: _index, replSchedules, onToggle, onEdit,
           {' · keep '}
           {schedule.retention}
           {schedule.retention_days ? ` / ${schedule.retention_days}d` : ''}
-          {schedule.prefix && ` · prefix: ${schedule.prefix}`}
+          {` · prefix: ${effectivePrefix(schedule)}`}
+          {schedule.recursive && ' · with children'}
           {replicationName && (
             <span style={{ marginLeft: 6, color: 'var(--primary)' }}>
               <Icon name="sync_alt" size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />
@@ -331,8 +351,8 @@ export function SnapshotSchedulerPage() {
   })
 
   const runNow = useMutation({
-    mutationFn: ({ dataset, retention }: { dataset: string; retention: number }) =>
-      api.post('/api/snapshots/run-now', { dataset, retain: retention }),
+    mutationFn: ({ dataset, prefix, recursive }: { dataset: string; prefix: string; recursive: boolean }) =>
+      api.post<{ success: boolean; error?: string }>('/api/snapshots/run-now', { dataset, prefix, recursive }).then(ensureOk),
     onSuccess: () => toast.success('Snapshot taken'),
     onError: (e: Error) => toast.error(e.message),
     onSettled: () => setRunningIdx(null),
@@ -364,7 +384,7 @@ export function SnapshotSchedulerPage() {
   function handleRunNow(idx: number) {
     const s = schedules[idx]
     setRunningIdx(idx)
-    runNow.mutate({ dataset: s.dataset, retention: s.retention })
+    runNow.mutate({ dataset: s.dataset, prefix: effectivePrefix(s), recursive: !!s.recursive })
   }
 
   const TABS: { id: Tab; label: string; icon: string }[] = [

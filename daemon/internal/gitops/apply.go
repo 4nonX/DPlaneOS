@@ -17,6 +17,8 @@ import (
 	"dplaned/internal/composegpu"
 	"dplaned/internal/hardware"
 	"dplaned/internal/libzfs"
+	"dplaned/internal/networkdwriter"
+	"dplaned/internal/nfsconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 	"dplaned/internal/smbconf"
@@ -50,12 +52,12 @@ var ErrHasBlocked = fmt.Errorf("plan contains BLOCKED items that require explici
 
 // ApplyResult describes the outcome of an ApplyPlan call.
 type ApplyResult struct {
-	Applied    []string      // names of successfully applied items
-	Failed     string        // name of the item that caused a halt (empty if all succeeded)
-	Error      error         // the error from the failed item
+	Applied    []string // names of successfully applied items
+	Failed     string   // name of the item that caused a halt (empty if all succeeded)
+	Error      error    // the error from the failed item
 	Duration   time.Duration
-	Status      string        // OK, DEGRADED, FAILED
-	HaltReason  string        // why the plan stopped (e.g. "blocked", "io-error")
+	Status     string // OK, DEGRADED, FAILED
+	HaltReason string // why the plan stopped (e.g. "blocked", "io-error")
 	// Convergence indicates the post-apply state: CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
 	Convergence string `json:"convergence"`
 	// Verification contains the results of post-apply synthetic liveness probes (Phase 12.6)
@@ -517,24 +519,15 @@ func executeReshape(item DiffItem) error {
 }
 
 func destroyPool(name string) error {
-	// Final safety check: refuse to destroy a pool that has datasets with data.
-	// This is belt-and-suspenders - the BLOCKED check should have caught this.
-	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-o", "name,used", "-r", name)
-	if err == nil {
-		for line := range strings.SplitSeq(string(out), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 && fields[0] != name {
-				usedBytes, err := GetDatasetUsedBytes(fields[0])
-				if err != nil || usedBytes > 0 {
-					return fmt.Errorf(
-						"SAFETY ABORT: pool %q contains dataset %q with %s of data (err: %v) - "+
-							"destroy cancelled even though BLOCKED was approved. "+
-							"Manually destroy the dataset first",
-						name, fields[0], HumaniseBytes(usedBytes), err,
-					)
-				}
-			}
-		}
+	// An approved pool destroy still never destroys data: only a pool whose
+	// root dataset is empty (no children, no snapshots, no files) goes.
+	empty, holds, err := DatasetEmpty(name)
+	if err != nil {
+		return fmt.Errorf("pool %q: cannot verify it is empty (%v); GitOps never destroys data", name, err)
+	}
+	if !empty {
+		return fmt.Errorf("pool %q %s; GitOps never destroys data, approved or not. "+
+			"Destroy the pool by hand (`zpool destroy %s`) if it is no longer needed", name, holds, name)
 	}
 
 	if err := libzfs.PoolDestroy(name); err != nil {
@@ -578,16 +571,16 @@ func createDataset(name string, ds *DesiredDataset) error {
 
 		sendCmd := exec.Command("ssh", host, "zfs", "send", "-R", remoteDS)
 		recvCmd := exec.Command("zfs", "receive", "-u", name)
- 
+
 		pr, pw := io.Pipe()
 		sendCmd.Stdout = pw
 		recvCmd.Stdin = pr
- 
+
 		// Capture errors from both
 		var errOut strings.Builder
 		sendCmd.Stderr = &errOut
 		recvCmd.Stderr = &errOut
- 
+
 		if err := sendCmd.Start(); err != nil {
 			pw.Close()
 			return fmt.Errorf("failed to start ssh send: %w", err)
@@ -682,14 +675,15 @@ func modifyDataset(name string, changes []string) error {
 }
 
 func deleteDataset(name string) error {
-	// Belt-and-suspenders: re-check used bytes even at execute time
-	used, err := GetDatasetUsedBytes(name)
-	if err != nil || used > 0 {
-		return fmt.Errorf(
-			"SAFETY ABORT: dataset %q has %s of data (err: %v) - destroy cancelled. "+
-				"This should have been BLOCKED. Please report this as a bug",
-			name, HumaniseBytes(used), err,
-		)
+	// Checked again at execute time: data may have arrived since the plan, and
+	// an approved BLOCKED item comes here too. Approval never destroys data.
+	empty, holds, err := DatasetEmpty(name)
+	if err != nil {
+		return fmt.Errorf("dataset %q: cannot verify it is empty (%v); GitOps never destroys data", name, err)
+	}
+	if !empty {
+		return fmt.Errorf("dataset %q %s; GitOps never destroys data, approved or not. "+
+			"Destroy it by hand (`zfs destroy -r %s`) if it is no longer needed", name, holds, name)
 	}
 
 	if err := libzfs.DatasetDestroy(name, false); err != nil {
@@ -808,12 +802,37 @@ func deleteStack(name string) error {
 	log.Printf("GITOPS: removed stack %q", name)
 	return nil
 }
- 
+
 // ── NFS operations ────────────────────────────────────────────────────────────
- 
+
+// checkNFS validates a declared export before it is stored: the values are
+// written into the exports file, so a newline in them added exports of
+// their own. Empty clients and options get the defaults.
+func checkNFS(path string, dn *DesiredNFS) error {
+	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\n\r") || strings.ContainsRune(path, 0) {
+		return fmt.Errorf("NFS export %q: the path must be absolute", path)
+	}
+	if strings.TrimSpace(dn.Clients) == "" {
+		dn.Clients = "*"
+	}
+	if strings.TrimSpace(dn.Options) == "" {
+		dn.Options = nfsconf.DefaultOptions
+	}
+	if err := nfsconf.ValidateClients(dn.Clients); err != nil {
+		return fmt.Errorf("NFS export %s: %w", path, err)
+	}
+	if err := nfsconf.ValidateOptions(dn.Options); err != nil {
+		return fmt.Errorf("NFS export %s: %w", path, err)
+	}
+	return nil
+}
+
 func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	if dn == nil {
 		return fmt.Errorf("no desired NFS spec for %q", path)
+	}
+	if err := checkNFS(path, dn); err != nil {
+		return err
 	}
 	enabledInt := 1
 	if !dn.Enabled {
@@ -834,11 +853,11 @@ func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	log.Printf("GITOPS: created NFS export %q", path)
 	return nil
 }
- 
+
 func modifyNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	return createNFS(db, exportsPath, path, dn)
 }
- 
+
 func deleteNFS(db *sql.DB, exportsPath, path string) error {
 	if _, err := db.Exec("DELETE FROM nfs_exports WHERE path = $1", path); err != nil {
 		return fmt.Errorf("delete nfs_export %q: %w", path, err)
@@ -847,7 +866,7 @@ func deleteNFS(db *sql.DB, exportsPath, path string) error {
 	log.Printf("GITOPS: deleted NFS export %q", path)
 	return nil
 }
- 
+
 // reloadNFS regenerates the DPlaneOS exports file and runs exportfs -ra.
 func reloadNFS(exportsPath string, db *sql.DB) {
 	if exportsPath == "" {
@@ -859,20 +878,16 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 		return
 	}
 	defer rows.Close()
- 
+
 	var sb strings.Builder
 	for rows.Next() {
 		var path, clients, options string
 		if err := rows.Scan(&path, &clients, &options); err != nil {
 			continue
 		}
-		// One line per client: "path c1 c2(opts)" would give c1 the
-		// default options instead of these.
-		for _, client := range strings.Fields(clients) {
-			fmt.Fprintf(&sb, "%s\t%s(%s)\n", path, client, options)
-		}
+		sb.WriteString(nfsconf.Lines(path, clients, options))
 	}
- 
+
 	if err := os.MkdirAll(filepath.Dir(exportsPath), 0755); err != nil {
 		log.Printf("GITOPS: reloadNFS: %v", err)
 		return
@@ -882,7 +897,7 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 		log.Printf("GITOPS: reloadNFS: write failed: %v", err)
 		return
 	}
- 
+
 	if _, err := cmdutil.RunFast("exportfs", "-ra"); err != nil {
 		log.Printf("GITOPS: reloadNFS: exportfs -ra failed (non-fatal): %v", err)
 	}
@@ -1026,7 +1041,7 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 	if du.Active {
 		activeInt = 1
 	}
-	
+
 	// If PasswordHash is empty, we don't update it to avoid wiping existing passwords
 	// unless this is a CREATE. A secret reference also keeps the node's password.
 	var err error
@@ -1035,6 +1050,7 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 			INSERT INTO users (username, password_hash, email, role, active)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT(username) DO UPDATE SET
+				smb_nt_hash=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.smb_nt_hash ELSE '' END,
 				password_hash=EXCLUDED.password_hash,
 				email=EXCLUDED.email,
 				role=EXCLUDED.role,
@@ -1054,12 +1070,12 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 			username, du.Email, du.Role, activeInt,
 		)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("reconcile user %q: %w", username, err)
 	}
 	log.Printf("GITOPS: reconciled user %q", username)
-	return nil
+	return syncShareAccounts(db)
 }
 
 func deleteUser(db *sql.DB, username string) error {
@@ -1071,7 +1087,7 @@ func deleteUser(db *sql.DB, username string) error {
 		return fmt.Errorf("delete user %q: %w", username, err)
 	}
 	log.Printf("GITOPS: deleted user %q", username)
-	return nil
+	return syncShareAccounts(db)
 }
 
 // ── Group operations ──────────────────────────────────────────────────────────
@@ -1080,35 +1096,34 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 	if dg == nil {
 		return fmt.Errorf("no desired group spec for %q", name)
 	}
-	
+
 	_, err := db.Exec(`
 		INSERT INTO groups (name, description, gid)
-		VALUES ($1, $2, $3)
+		VALUES ($1, $2, NULLIF($3, 0))
 		ON CONFLICT(name) DO UPDATE SET
 			description=EXCLUDED.description,
-			gid=EXCLUDED.gid,
-			updated_at=NOW()`,
+			gid=COALESCE(EXCLUDED.gid, groups.gid)`,
 		name, dg.Description, dg.GID,
 	)
 	if err != nil {
 		return fmt.Errorf("reconcile group %q: %w", name, err)
 	}
-	
+
 	// Sync members
 	_, err = db.Exec("DELETE FROM group_members WHERE group_name = $1", name)
 	if err != nil {
 		return fmt.Errorf("clear members for group %q: %w", name, err)
 	}
-	
+
 	for _, member := range dg.Members {
 		_, err = db.Exec("INSERT INTO group_members (group_name, username) VALUES ($1, $2)", name, member)
 		if err != nil {
 			return fmt.Errorf("add member %q to group %q: %w", member, name, err)
 		}
 	}
-	
+
 	log.Printf("GITOPS: reconciled group %q", name)
-	return nil
+	return syncShareAccounts(db)
 }
 
 func deleteGroup(db *sql.DB, name string) error {
@@ -1116,13 +1131,13 @@ func deleteGroup(db *sql.DB, name string) error {
 	if _, err := db.Exec("DELETE FROM group_members WHERE group_name = $1", name); err != nil {
 		log.Printf("GITOPS: failed to clear members for group %q (proceeding with group delete): %v", name, err)
 	}
-	
+
 	_, err := db.Exec("DELETE FROM groups WHERE name = $1", name)
 	if err != nil {
 		return fmt.Errorf("delete group %q: %w", name, err)
 	}
 	log.Printf("GITOPS: deleted group %q", name)
-	return nil
+	return syncShareAccounts(db)
 }
 
 // ── Replication operations ────────────────────────────────────────────────────
@@ -1135,22 +1150,19 @@ func reconcileSystem(item DiffItem) error {
 		return nil
 	}
 	w := nixwriter.DefaultWriter()
- 
+
 	if ds.Hostname != "" {
 		w.SetHostname(ds.Hostname)
 	}
 	if ds.Timezone != "" {
 		w.SetTimezone(ds.Timezone)
 	}
-	if len(ds.DNSServers) > 0 {
-		w.SetDNS(ds.DNSServers)
-	}
 	if len(ds.NTPServers) > 0 {
 		w.SetNTP(ds.NTPServers)
 	}
- 
+
 	w.SetFirewallPorts(ds.Firewall.TCP, ds.Firewall.UDP)
- 
+
 	smb := nixwriter.SambaGlobalOpts{
 		Workgroup:    ds.Samba.Workgroup,
 		ServerString: ds.Samba.ServerString,
@@ -1159,15 +1171,15 @@ func reconcileSystem(item DiffItem) error {
 		ExtraGlobal:  ds.Samba.ExtraGlobal,
 	}
 	w.SetSambaGlobals(smb)
- 
-	for iface, st := range ds.Networking.Statics {
-		w.SetStaticInterface(iface, st.CIDR, st.Gateway)
-	}
-	for name, b := range ds.Networking.Bonds {
-		w.SetBond(name, b.Slaves, b.Mode)
-	}
-	for name, v := range ds.Networking.VLANs {
-		w.SetVLAN(name, v.Parent, v.VID)
+
+	// Network settings go to networkd (network.go), applied at once.
+	if nw := networkdwriter.Default(); nw.IsNetworkd() {
+		next := desiredNetworkState(nw.State(), ds)
+		if err := nw.Apply(next); err != nil {
+			return fmt.Errorf("network: %w", err)
+		}
+	} else if len(ds.Networking.Statics)+len(ds.Networking.Bonds)+len(ds.Networking.VLANs)+len(ds.DNSServers) > 0 {
+		return fmt.Errorf("network settings need systemd-networkd")
 	}
 
 	if ds.SSH.Port != 0 || ds.SSH.PasswordAuth != nil || ds.SSH.PermitRootLogin != "" {
@@ -1272,8 +1284,8 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 	}
 	for _, g := range desired.Groups {
-		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) VALUES ($1, $2, $3)
-			ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description, gid=EXCLUDED.gid`,
+		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) VALUES ($1, $2, NULLIF($3, 0))
+			ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description, gid=COALESCE(EXCLUDED.gid, groups.gid)`,
 			g.Name, g.Description, g.GID)
 		if err != nil {
 			return fmt.Errorf("syncing group %q: %w", g.Name, err)
@@ -1330,6 +1342,9 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 	}
 	for _, n := range desired.NFS {
+		if err := checkNFS(n.Path, &n); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM nfs_exports WHERE path = $1`, n.Path); err != nil {
 			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
 		}
@@ -1344,6 +1359,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	syncShareAccounts(db) //nolint:errcheck // logs its own failures
 
 	// 5. LDAP Sync (separately, as it's a single row update)
 	return reconcileLDAP(db, desired.LDAP)

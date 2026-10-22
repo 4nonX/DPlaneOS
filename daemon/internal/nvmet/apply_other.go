@@ -11,3 +11,5 @@ func Apply(exports []Export) error {
 	}
 	return fmt.Errorf("NVMe-oF target is only supported on Linux")
 }
+
+func configuredNQNs() []string { return nil }

@@ -6,8 +6,8 @@
 |---------|---------|
 | Service will not start | `journalctl -u dplaned -n 50` |
 | Database locked | `systemctl restart dplaned` |
-| Database corrupted | Restore from backup (see below) |
-| Lost admin access | `sudo dplaneos-recovery` (option 5) |
+| Database corrupted | Restore a configuration backup (Settings → Maintenance; daily copies on the first pool) |
+| Lost admin access | `sudo dplaneos-recovery` (option 5; option 6 for a lost 2FA device) |
 | Pool not importing | `zpool import -f <pool>` |
 | Web UI unreachable | `curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health` |
 | High memory usage | Check `MemoryMax` in systemd unit, restart service |
@@ -64,31 +64,18 @@ curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
 
 The PostgreSQL database is node-local and stored at `/var/lib/dplaneos/pgsql/`.
 
-### Automatic Snapshots
+### Configuration backup and restore
 
-We recommend using ZFS snapshots for database recovery. The installer configures a separate dataset for the PostgreSQL state if a pool exists.
+Settings → Maintenance downloads the whole configuration (database and the settings kept in files) and restores it; the daemon also writes one a day to the first data pool (`<pool>/.dplaneos-config/`, newest 14). A restore is checked, applied at the next daemon start in one transaction (all or nothing), and the configuration it replaced is kept as a backup you can download or restore. See [Backup and Replication](BACKUP-REPLICATION.md#configuration-backup).
 
-```bash
-# View available snapshots
-zfs list -t snapshot -r tank/dplaneos/pgsql
-
-# Restore a snapshot (rollback)
-sudo systemctl stop dplaned postgresql
-sudo zfs rollback tank/dplaneos/pgsql@backup-20260323
-sudo systemctl start postgresql dplaned
-```
-
-### Manual Backup (Logical)
+Without the web UI (stored backups are under `<pool>/.dplaneos-config/`):
 
 ```bash
-# Backup the entire dplaneos database
-sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
-
-# Restore from SQL dump
-sudo systemctl stop dplaned
-sudo -u postgres psql dplaneos < /backup/dplaneos-20260323.sql
-sudo systemctl start dplaned
+sudo dplaned -config-dir /etc/dplaneos -recover-restore /tank/.dplaneos-config/dplaneos-config-<host>-<date>.tar.gz
+sudo systemctl restart dplaned     # applies it
 ```
+
+Add `-recover-network` to restore the network settings too (same hardware only).
 
 ### Complete Database Reset
 
@@ -116,26 +103,32 @@ The fastest option for most recovery tasks. Run from SSH or a local console:
 sudo dplaneos-recovery
 ```
 
-Available options:
-
 | # | Option | What it does |
 |---|--------|--------------|
-| 1 | System Status | Hostname, kernel, uptime, RAM, disk, service status |
-| 2 | Check Services | nginx and dplaned status with port availability |
-| 3 | Restart Services | Restarts nginx and dplaned |
-| 4 | Check Database | PostgreSQL service, connection, user and session counts |
-| 5 | Reset Admin Password | Prompts for a new password and updates the database |
-| 6 | Check ZFS Pools | Full `zpool status` output |
-| 7 | Import/Export Pool | Interactive pool name input for import or export |
-| 8 | Check Network | `ip addr` and `ip route` output |
-| 9 | Fix Permissions | Resets ownership on `/var/lib/dplaneos`, `/var/log/dplaneos`, `/etc/dplaneos` |
-| 10 | UPS Status | Reads from NUT (`upsc`) or apcupsd (`apcaccess`) |
-| 11 | View Logs | journalctl for dplaned, errors, nixos-rebuild, kernel, or last 5 minutes |
-| 12 | Run Diagnostics | Service loop, ZFS pool summary, disk space, memory, load |
-| 13 | Emergency Shutdown | Power off or reboot with confirmation prompt |
+| 1 | System Status | Hostname, OS, kernel, uptime, DPlaneOS version, memory, disk, service states |
+| 2 | Check Services | dplaned, PostgreSQL, nginx, Samba, NFS, and whether the web ports listen |
+| 3 | Restart Services | Restarts PostgreSQL, dplaned and nginx |
+| 4 | Check Database | PostgreSQL state, connection, and the local users |
+| 5 | Reset a User's Password | Pick a local user, set a new password (as the web UI does: bcrypt, SCRAM keys and SMB password); the account is activated and its sessions end |
+| 6 | Turn Off a User's Two-Factor Authentication | For a lost authenticator without backup codes; set it up again after logging in |
+| 7 | Check ZFS Pools | `zpool status` |
+| 8 | Import/Export Pool | Import or export a pool by name |
+| 9 | Check Network | Addresses, routes, DNS servers |
+| 10 | UPS Status | NUT (`upsc`) |
+| 11 | View Logs | dplaned (all or errors), the update check after a reboot, kernel errors, last 5 minutes |
+| 12 | Run Diagnostics | Services, pools, disk space, memory, load |
+| 13 | Emergency Shutdown | Power off or reboot after a confirmation |
 | 14 | Exit | |
 
-Requires `dialog` to be installed. On NixOS: `nix-env -iA nixpkgs.dialog`.
+Options 4 to 6 use the daemon binary's recovery commands, which also work without the menu:
+
+```bash
+dplaned -db-dsn "<DSN>" -recover-list-users
+printf '%s\n' 'New-Password-1!' | dplaned -db-dsn "<DSN>" -secrets-key <key> -recover-reset-password admin
+dplaned -db-dsn "<DSN>" -recover-disable-2fa admin
+```
+
+(`<DSN>` and `<key>`: the `-db-dsn` and `-secrets-key` of `systemctl cat dplaned`.)
 
 ### Locked Out - Clear All Sessions
 
@@ -145,31 +138,6 @@ Sessions are stored in the `sessions` table. To force-logout all users:
 sudo -u postgres psql dplaneos -c "DELETE FROM sessions;"
 # All users must log in again
 ```
-
-### Reset Admin User Directly
-
-```bash
-# Write the password to a temp file to avoid shell quoting issues
-PASS_TMP=$(mktemp)
-chmod 600 "$PASS_TMP"
-printf '%s' 'your-new-password' > "$PASS_TMP"
-
-NEW_HASH=$(python3 -c "
-import bcrypt, sys
-with open(sys.argv[1], 'rb') as f:
-    pw = f.read().strip()
-print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
-" "$PASS_TMP")
-rm -f "$PASS_TMP"
-
-sudo -u postgres psql dplaneos -c "
-  INSERT INTO users (id, username, password_hash, display_name, email, active, source)
-  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 1, 'local')
-  ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
-"
-```
-
-**Note (v14.0.0):** This procedure resets only the bcrypt password hash. DPlaneOS v14.0.0 also stores SCRAM-SHA-512 keys (salt, iterations, StoredKey, ServerKey) that are not regenerated by this script. After using this procedure, the account will function for web login (bcrypt path) but SCRAM clients will need to trigger a password change to regenerate their keys. The safest recovery path is to use the NixOS recovery shell or the daemon's bootstrap endpoint (`POST /api/system/setup/admin`) which regenerates both bcrypt and SCRAM keys atomically.
 
 ---
 

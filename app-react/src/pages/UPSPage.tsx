@@ -98,7 +98,7 @@ function statusInfo(s: string | undefined): { label: string; color: string } {
 // ConfigPanel
 // ---------------------------------------------------------------------------
 
-interface UPSPolicy { success: boolean; action: 'shutdown' | 'hibernate'; threshold: number; grace: number }
+interface UPSPolicy { success: boolean; action: 'shutdown'; threshold: number; grace: number }
 
 // The shutdown policy is what the API stores (POST /api/system/ups takes
 // action, threshold, grace). The NUT connection (driver, port, UPS name) is
@@ -115,7 +115,6 @@ function ConfigPanel() {
 }
 
 function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => void }) {
-  const [action, setAction] = useState(initial.action)
   const [threshold, setThreshold] = useState(String(initial.threshold))
   const [grace, setGrace] = useState(String(initial.grace))
 
@@ -124,7 +123,7 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
       const t = Number(threshold), g = Number(grace)
       if (!(t >= 1 && t <= 99)) throw new Error('Shutdown level must be 1 to 99 %')
       if (!(g >= 0 && g <= 600)) throw new Error('Grace period must be 0 to 600 seconds')
-      return api.post('/api/system/ups', { action, threshold: t, grace: g })
+      return api.post('/api/system/ups', { action: 'shutdown', threshold: t, grace: g })
     },
     onSuccess: () => { toast.success('UPS shutdown policy saved'); onSaved() },
     onError: (e: Error) => toast.error(e.message),
@@ -138,10 +137,7 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 14 }}>
         <label className="field">
           <span className="field-label">On low battery</span>
-          <select value={action} onChange={e => setAction(e.target.value as UPSPolicy['action'])} className="input" style={{ appearance: 'none' }}>
-            <option value="shutdown">Shut down</option>
-            <option value="hibernate">Hibernate</option>
-          </select>
+          <div className="input" style={{ display: 'flex', alignItems: 'center' }} title="Hibernation is not possible with ZFS">Shut down</div>
         </label>
         <label className="field">
           <span className="field-label">Shutdown at battery %</span>
@@ -154,7 +150,7 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
       </div>
       <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: '0 0 16px' }}>
         The UPS connection (driver, port, UPS name) is set in the NixOS configuration under
-        <code style={{ margin: '0 4px' }}>services.dplaneos.ups</code>. The policy applies with the next pending NixOS changes.
+        <code style={{ margin: '0 4px' }}>services.dplaneos.ups</code>. The policy applies with the next pending NixOS changes. Power events (on battery, low battery, back on mains, connection lost, replace battery) are sent as alerts.
       </p>
       <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Policy'}

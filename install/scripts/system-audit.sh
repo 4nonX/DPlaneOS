@@ -668,7 +668,7 @@ fi
 if systemctl is-active systemd-networkd &>/dev/null; then
     pass "systemd-networkd: running"
     # Check for dplaneos-managed configs
-    DPLANE_NETS=$(find /etc/systemd/network -name "50-dplane-*" 2>/dev/null | wc -l)
+    DPLANE_NETS=$(find /etc/systemd/network -name "05-dplane-*" 2>/dev/null | wc -l)
     info "DPlaneOS network configs: $DPLANE_NETS file(s) in /etc/systemd/network/"
 else
     info "systemd-networkd: not active (using NetworkManager or other)"

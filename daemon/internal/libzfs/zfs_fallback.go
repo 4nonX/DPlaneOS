@@ -19,7 +19,7 @@ import (
 func PoolIsMember(device string) (PoolMembership, error) {
 	out, err := cmdutil.RunFast("zpool_status", "status", "-P")
 	if err != nil {
-		return PoolMembership{}, libzfsErr("PoolIsMember", string(out))
+		return PoolMembership{}, cmdErr("PoolIsMember", out, err)
 	}
 	status := string(out)
 	bare := strings.TrimPrefix(device, "/dev/")
@@ -47,7 +47,7 @@ func PoolIsMember(device string) (PoolMembership, error) {
 func PoolImportAll() error {
 	out, err := cmdutil.RunSlow("zpool_import_all", "import", "-a", "-f", "-d", "/dev/disk/by-id")
 	if err != nil {
-		return libzfsErr("PoolImportAll", string(out))
+		return cmdErr("PoolImportAll", out, err)
 	}
 	return nil
 }
@@ -64,7 +64,7 @@ func PoolExport(name string, force bool) error {
 	args = append(args, name)
 	out, err := cmdutil.RunMedium("zpool_export", args...)
 	if err != nil {
-		return libzfsErr("PoolExport", string(out))
+		return cmdErr("PoolExport", out, err)
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func DatasetCreate(name string) error {
 	}
 	out, err := cmdutil.RunZFS("zfs_create", "create", name)
 	if err != nil {
-		return libzfsErr("DatasetCreate", string(out))
+		return cmdErr("DatasetCreate", out, err)
 	}
 	return nil
 }
@@ -88,7 +88,7 @@ func DatasetGet(dataset, prop string) (string, error) {
 	}
 	out, err := cmdutil.RunFast("zfs_get", "get", "-H", "-o", "value", prop, dataset)
 	if err != nil {
-		return "", libzfsErr("DatasetGet", string(out))
+		return "", cmdErr("DatasetGet", out, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -101,7 +101,7 @@ func DatasetSet(dataset, prop, value string) error {
 	kv := prop + "=" + value
 	out, err := cmdutil.RunMedium("zfs_set_property", "set", kv, dataset)
 	if err != nil {
-		return libzfsErr("DatasetSet", string(out))
+		return cmdErr("DatasetSet", out, err)
 	}
 	return nil
 }
@@ -113,7 +113,7 @@ func DatasetPromote(dataset string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_promote", "promote", dataset)
 	if err != nil {
-		return libzfsErr("DatasetPromote", string(out))
+		return cmdErr("DatasetPromote", out, err)
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func VdevDetach(pool, device string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_detach", "detach", pool, device)
 	if err != nil {
-		return libzfsErr("VdevDetach", string(out))
+		return cmdErr("VdevDetach", out, err)
 	}
 	return nil
 }
@@ -143,7 +143,7 @@ func VdevOnline(pool, device string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_online", "online", pool, device)
 	if err != nil {
-		return libzfsErr("VdevOnline", string(out))
+		return cmdErr("VdevOnline", out, err)
 	}
 	return nil
 }
@@ -164,7 +164,7 @@ func VdevOffline(pool, device string, temporary bool) error {
 	args = append(args, pool, device)
 	out, err := cmdutil.RunMedium("zpool_offline", args...)
 	if err != nil {
-		return libzfsErr("VdevOffline", string(out))
+		return cmdErr("VdevOffline", out, err)
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func PoolClear(pool string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_clear", "clear", pool)
 	if err != nil {
-		return libzfsErr("PoolClear", string(out))
+		return cmdErr("PoolClear", out, err)
 	}
 	return nil
 }
@@ -188,7 +188,7 @@ func PoolSetProperty(pool, key, value string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_set_property", "set", key+"="+value, pool)
 	if err != nil {
-		return libzfsErr("PoolSetProperty", string(out))
+		return cmdErr("PoolSetProperty", out, err)
 	}
 	return nil
 }
@@ -206,7 +206,7 @@ func DatasetDestroy(name string, recursive bool) error {
 	args = append(args, name)
 	out, err := cmdutil.RunMedium("zfs_destroy", args...)
 	if err != nil {
-		return libzfsErr("DatasetDestroy", string(out))
+		return cmdErr("DatasetDestroy", out, err)
 	}
 	return nil
 }
@@ -218,7 +218,7 @@ func SnapshotHold(tag, snapshot string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_hold", "hold", tag, snapshot)
 	if err != nil {
-		return libzfsErr("SnapshotHold", string(out))
+		return cmdErr("SnapshotHold", out, err)
 	}
 	return nil
 }
@@ -230,7 +230,7 @@ func SnapshotRelease(tag, snapshot string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_release", "release", tag, snapshot)
 	if err != nil {
-		return libzfsErr("SnapshotRelease", string(out))
+		return cmdErr("SnapshotRelease", out, err)
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func SnapshotCreate(name string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_snapshot", "snapshot", name)
 	if err != nil {
-		return libzfsErr("SnapshotCreate", string(out))
+		return cmdErr("SnapshotCreate", out, err)
 	}
 	return nil
 }
@@ -254,7 +254,7 @@ func SnapshotDestroy(name string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_destroy_snapshot", "destroy", name)
 	if err != nil {
-		return libzfsErr("SnapshotDestroy", string(out))
+		return cmdErr("SnapshotDestroy", out, err)
 	}
 	return nil
 }
@@ -269,7 +269,7 @@ func SnapshotClone(snapshot, clone string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_clone", "clone", snapshot, clone)
 	if err != nil {
-		return libzfsErr("SnapshotClone", string(out))
+		return cmdErr("SnapshotClone", out, err)
 	}
 	return nil
 }

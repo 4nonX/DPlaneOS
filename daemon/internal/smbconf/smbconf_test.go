@@ -72,6 +72,12 @@ func TestPerShareOptions(t *testing.T) {
 	for _, want := range []string{
 		"vfs objects = catia fruit streams_xattr shadow_copy2 recycle",
 		"shadow:snapdir = .zfs/snapshot", "recycle:repository = .recycle/%U",
+		// Verified against Samba 4.19 (smbclient @GMT paths): without the
+		// delimiter (default "_GMT") no previous version was found; the
+		// generic prefix also finds schedules with their own prefix, and
+		// snapdirseverywhere the snapshots of child datasets in the share.
+		`shadow:snapprefix = ^[A-Za-z0-9]`, "shadow:snapdirseverywhere = yes",
+		"shadow:delimiter = -20", "shadow:format = -%Y%m%d-%H%M", "shadow:localtime = yes",
 		"hosts allow = 192.168.1.0/24 10.0.0.5", "hosts deny = ALL",
 	} {
 		if !strings.Contains(d, want) {
@@ -145,5 +151,20 @@ func TestAvahiTimeMachineXML(t *testing.T) {
 		if !strings.Contains(x, want) {
 			t.Errorf("avahi XML missing %q:\n%s", want, x)
 		}
+	}
+}
+
+// A guest share needs "map to guest = Bad User" in [global]: NixOS no longer
+// sets it (its value came after the include and won), so it is written in
+// front of the shares, still inside [global], only while a share needs it.
+func TestGuestMapping(t *testing.T) {
+	pub := share("public")
+	pub.GuestOK = true
+	conf := Render(Options{NixOSManaged: true}, []Share{share("data"), pub})
+	if i, j := strings.Index(conf, "map to guest = Bad User"), strings.Index(conf, "[data]"); i < 0 || i > j {
+		t.Errorf("guest mapping missing or not before the first share:\n%s", conf)
+	}
+	if conf := Render(Options{NixOSManaged: true}, []Share{share("data")}); strings.Contains(conf, "map to guest") {
+		t.Errorf("guest mapping without a guest share:\n%s", conf)
 	}
 }

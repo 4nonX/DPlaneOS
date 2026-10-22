@@ -1,473 +1,885 @@
-// Package networkdwriter manages DPlaneOS network configuration by writing
-// systemd-networkd unit files directly to /etc/systemd/network/.
+// Package networkdwriter keeps DPlaneOS's network configuration as
+// systemd-networkd files in /etc/systemd/network.
 //
-// # Why this is the right approach
+// The desired configuration is one State (interfaces, bonds, VLANs, DNS). It
+// is saved as JSON and rendered into one .network file per interface it
+// touches (address or DHCP, gateway, routes, its VLANs, or the bond it is part
+// of) and one .netdev file per bond or VLAN. Every change renders the whole
+// state, so a rollback is applying the previous state again.
 //
-// The fundamental problem with the previous approaches:
+// networkd applies the FIRST .network file (in lexical order) that matches an
+// interface and ignores the rest. The files are named 05-dplane-<name>, so
+// they come before the distribution's (NixOS 10-<name>, its 99- DHCP
+// fallback, netplan's 10-netplan-*). An interface has exactly one DPlaneOS
+// file: its VLANs and its bond membership go into that file, not into extra
+// files that would replace its address configuration.
 //
-//   nixwriter approach:
-//     UI change → write .nix fragment → requires `nixos-rebuild switch`
-//     Rebuild takes 2-5 minutes, disrupts running services during transition.
-//     Changes are not active until rebuild completes.
-//
-//   netlink-only approach:
-//     UI change → kernel netlink call → active immediately
-//     Lost on reboot (kernel state is ephemeral).
-//
-//   This package:
-//     UI change → write /etc/systemd/network/50-dplane-*.{network,netdev}
-//              → networkctl reload  (< 1 second, zero downtime)
-//     Persistent: YES - survives reboot (networkd reads these files at boot)
-//     Survives nixos-rebuild: YES - NixOS activation only manages files
-//     it created (prefix 10-, 20-, etc). It never deletes files it doesn't own.
-//     Works on: every systemd distro (NixOS, Debian, Ubuntu, Arch, RHEL)
-//     No rebuild required: EVER.
-//
-// # File naming convention
-//
-// systemd-networkd processes .network and .netdev files in lexicographic order.
-// NixOS generates files with low numeric prefixes (10-, 20-).
-// DPlaneOS uses prefix 50- to ensure our config loads AFTER NixOS defaults
-// but can still be overridden by manual 90- files if needed.
-//
-//   /etc/systemd/network/
-//     10-eth0.network          ← NixOS managed (DHCP default)
-//     50-dplane-eth0.network   ← DPlaneOS managed (static IP override)
-//     50-dplane-bond0.netdev   ← DPlaneOS managed (bond device)
-//     50-dplane-bond0.network  ← DPlaneOS managed (bond network config)
-//     50-dplane-eth0.100.netdev ← DPlaneOS managed (VLAN device)
-//     50-dplane-eth0.100.network ← DPlaneOS managed (VLAN network config)
-//
-// # Reload mechanism
-//
-// After writing files, the writer calls `networkctl reload` which signals
-// systemd-networkd to re-read all configuration files and apply changes
-// to existing interfaces without disrupting established connections.
-// This is equivalent to `systemctl reload systemd-networkd` but faster
-// and more targeted.
-//
-// # Debian/Ubuntu compatibility
-//
-// On non-NixOS systems, systemd-networkd may not be the active network
-// manager (NetworkManager or ifupdown may be used instead). The writer
-// detects whether networkd is active and falls back gracefully:
-//   - If networkd is active: write files + networkctl reload
-//   - If networkd is inactive: write files only (for future use / migration)
-//     and also apply via netlink (immediate effect)
+// networkd creates missing netdevs on reload but never changes or removes an
+// existing one, so a bond or VLAN that is removed or changed is deleted here
+// first and created again from its new file.
 package networkdwriter
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
 	// DefaultNetworkDir is where systemd-networkd reads configuration.
-	// On NixOS and most systemd distros this is the standard path.
 	DefaultNetworkDir = "/etc/systemd/network"
 
-	// FilePrefix is prepended to all DPlaneOS-managed files.
-	// Chosen to sort after NixOS-generated files (10-, 20-) but before
-	// any manual overrides (90-).
-	FilePrefix = "50-dplane-"
+	// FilePrefix sorts before the distribution's files (see the package doc).
+	FilePrefix = "05-dplane-"
+
+	// legacyPrefix: files of earlier versions (one file per feature); they
+	// sorted after the distribution's files and were ignored by networkd for
+	// any interface the distribution configured. Imported once, then removed.
+	legacyPrefix = "50-dplane-"
+
+	// DefaultStatePath holds the desired State as JSON.
+	DefaultStatePath = "/var/lib/dplaneos/network-state.json"
+
+	// DefaultResolvedDropin sets the global DNS servers and search domains.
+	DefaultResolvedDropin = "/etc/systemd/resolved.conf.d/50-dplane.conf"
 )
 
-// Writer manages DPlaneOS network configuration files in the networkd directory.
-type Writer struct {
-	mu         sync.Mutex
-	dir        string // /etc/systemd/network
-	networkdUp bool   // whether systemd-networkd is active on this system
+// Route is a static route on an interface.
+type Route struct {
+	Destination string `json:"destination"` // CIDR, e.g. 10.20.0.0/16
+	Gateway     string `json:"gateway"`
 }
 
-// New returns a Writer for the given networkd configuration directory.
+// Iface is the address configuration of one interface.
+type Iface struct {
+	DHCP      bool     `json:"dhcp,omitempty"`
+	Addresses []string `json:"addresses,omitempty"` // CIDR
+	Gateway   string   `json:"gateway,omitempty"`
+	Routes    []Route  `json:"routes,omitempty"`
+}
+
+// Bond is a bond device and its member interfaces.
+type Bond struct {
+	Mode   string   `json:"mode"`
+	Slaves []string `json:"slaves"`
+}
+
+// VLAN is an 802.1Q device on a parent interface.
+type VLAN struct {
+	Parent string `json:"parent"`
+	ID     int    `json:"id"`
+}
+
+// DNS is the global resolver configuration (systemd-resolved).
+type DNS struct {
+	Servers []string `json:"servers,omitempty"`
+	Search  []string `json:"search,omitempty"`
+}
+
+// State is DPlaneOS's whole network configuration. Interfaces that appear
+// nowhere in it keep the distribution's configuration.
+type State struct {
+	Interfaces map[string]Iface `json:"interfaces,omitempty"`
+	Bonds      map[string]Bond  `json:"bonds,omitempty"`
+	VLANs      map[string]VLAN  `json:"vlans,omitempty"`
+	DNS        DNS              `json:"dns"`
+}
+
+// Clone returns a deep copy.
+func (s State) Clone() State {
+	var c State
+	b, _ := json.Marshal(s)
+	_ = json.Unmarshal(b, &c)
+	return c
+}
+
+// BondOf returns the bond an interface is a member of, or "".
+func (s State) BondOf(iface string) string {
+	for name, b := range s.Bonds {
+		if slices.Contains(b.Slaves, iface) {
+			return name
+		}
+	}
+	return ""
+}
+
+// Mentions reports whether the state configures the interface in any way.
+func (s State) Mentions(iface string) bool {
+	if _, ok := s.Interfaces[iface]; ok {
+		return true
+	}
+	if _, ok := s.Bonds[iface]; ok {
+		return true
+	}
+	if _, ok := s.VLANs[iface]; ok {
+		return true
+	}
+	if s.BondOf(iface) != "" {
+		return true
+	}
+	for _, v := range s.VLANs {
+		if v.Parent == iface {
+			return true
+		}
+	}
+	return false
+}
+
+var bondModes = map[string]bool{
+	"balance-rr": true, "active-backup": true, "balance-xor": true, "broadcast": true,
+	"802.3ad": true, "balance-tlb": true, "balance-alb": true,
+}
+
+// Validate checks the state for values networkd would reject and for
+// combinations that cannot work.
+func (s State) Validate() error {
+	for name, ifc := range s.Interfaces {
+		if err := ValidateIface(name); err != nil {
+			return err
+		}
+		for _, a := range ifc.Addresses {
+			if _, _, err := net.ParseCIDR(a); err != nil {
+				return fmt.Errorf("%s: address %q: use address/prefix, e.g. 192.168.1.10/24", name, a)
+			}
+		}
+		if ifc.Gateway != "" && net.ParseIP(ifc.Gateway) == nil {
+			return fmt.Errorf("%s: invalid gateway %q", name, ifc.Gateway)
+		}
+		for _, r := range ifc.Routes {
+			if _, _, err := net.ParseCIDR(r.Destination); err != nil {
+				return fmt.Errorf("%s: route destination %q: use network/prefix", name, r.Destination)
+			}
+			if net.ParseIP(r.Gateway) == nil {
+				return fmt.Errorf("%s: route gateway %q is not an IP address", name, r.Gateway)
+			}
+		}
+		if b := s.BondOf(name); b != "" && (ifc.DHCP || len(ifc.Addresses) > 0 || ifc.Gateway != "" || len(ifc.Routes) > 0) {
+			return fmt.Errorf("%s is part of bond %s: configure the address on %s", name, b, b)
+		}
+	}
+	member := map[string]string{}
+	for name, b := range s.Bonds {
+		if err := ValidateIface(name); err != nil {
+			return err
+		}
+		if !bondModes[b.Mode] {
+			return fmt.Errorf("bond %s: unknown mode %q", name, b.Mode)
+		}
+		if len(b.Slaves) == 0 {
+			return fmt.Errorf("bond %s needs at least one interface", name)
+		}
+		for _, sl := range b.Slaves {
+			if err := ValidateIface(sl); err != nil {
+				return err
+			}
+			if other, ok := member[sl]; ok {
+				return fmt.Errorf("%s is in bonds %s and %s", sl, other, name)
+			}
+			member[sl] = name
+			if _, ok := s.Bonds[sl]; ok {
+				return fmt.Errorf("bond %s cannot contain bond %s", name, sl)
+			}
+			if _, ok := s.VLANs[sl]; ok {
+				return fmt.Errorf("bond %s cannot contain VLAN %s", name, sl)
+			}
+		}
+	}
+	ids := map[string]string{}
+	for name, v := range s.VLANs {
+		if err := ValidateIface(name); err != nil {
+			return err
+		}
+		if err := ValidateIface(v.Parent); err != nil {
+			return fmt.Errorf("VLAN %s parent: %w", name, err)
+		}
+		if v.ID < 1 || v.ID > 4094 {
+			return fmt.Errorf("VLAN %s: ID %d out of range 1-4094", name, v.ID)
+		}
+		if b := s.BondOf(v.Parent); b != "" {
+			return fmt.Errorf("VLAN %s: %s is part of bond %s; put the VLAN on %s", name, v.Parent, b, b)
+		}
+		if _, ok := s.Bonds[name]; ok {
+			return fmt.Errorf("%s is both a bond and a VLAN", name)
+		}
+		key := fmt.Sprintf("%s/%d", v.Parent, v.ID)
+		if other, ok := ids[key]; ok {
+			return fmt.Errorf("VLAN %d on %s exists twice (%s, %s)", v.ID, v.Parent, other, name)
+		}
+		ids[key] = name
+	}
+	for _, d := range s.DNS.Servers {
+		if net.ParseIP(d) == nil {
+			return fmt.Errorf("invalid DNS server %q", d)
+		}
+	}
+	for _, d := range s.DNS.Search {
+		if !validDomain(d) {
+			return fmt.Errorf("invalid search domain %q", d)
+		}
+	}
+	return nil
+}
+
+func validDomain(d string) bool {
+	if d == "" || len(d) > 253 {
+		return false
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(d, "."), ".") {
+		if l == "" || len(l) > 63 {
+			return false
+		}
+		for _, c := range l {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// render returns the networkd files of the state (file name → content).
+func (s State) render() map[string]string {
+	files := map[string]string{}
+	names := map[string]bool{}
+	for n := range s.Interfaces {
+		names[n] = true
+	}
+	for n, b := range s.Bonds {
+		names[n] = true
+		for _, sl := range b.Slaves {
+			names[sl] = true
+		}
+		files[FilePrefix+n+".netdev"] = "# Managed by DPlaneOS - do not edit\n\n[NetDev]\nName=" + n + "\nKind=bond\n\n[Bond]\nMode=" + b.Mode +
+			"\n# Without link monitoring a failed member is never noticed.\nMIIMonitorSec=100ms\n"
+	}
+	vlansOn := map[string][]string{}
+	for n, v := range s.VLANs {
+		names[n] = true
+		names[v.Parent] = true
+		vlansOn[v.Parent] = append(vlansOn[v.Parent], n)
+		files[FilePrefix+n+".netdev"] = fmt.Sprintf("# Managed by DPlaneOS - do not edit\n\n[NetDev]\nName=%s\nKind=vlan\n\n[VLAN]\nId=%d\n", n, v.ID)
+	}
+	for n := range names {
+		var b strings.Builder
+		b.WriteString("# Managed by DPlaneOS - do not edit\n\n[Match]\nName=" + n + "\n\n[Network]\n")
+		if bond := s.BondOf(n); bond != "" {
+			b.WriteString("Bond=" + bond + "\n")
+			files[FilePrefix+n+".network"] = b.String()
+			continue
+		}
+		ifc := s.Interfaces[n]
+		if ifc.DHCP {
+			b.WriteString("DHCP=yes\n")
+		} else {
+			b.WriteString("DHCP=no\n")
+		}
+		for _, a := range ifc.Addresses {
+			b.WriteString("Address=" + a + "\n")
+		}
+		if ifc.Gateway != "" {
+			b.WriteString("Gateway=" + ifc.Gateway + "\n")
+		}
+		vl := vlansOn[n]
+		sort.Strings(vl)
+		for _, v := range vl {
+			b.WriteString("VLAN=" + v + "\n")
+		}
+		for _, r := range ifc.Routes {
+			b.WriteString("\n[Route]\nDestination=" + r.Destination + "\nGateway=" + r.Gateway + "\n")
+		}
+		files[FilePrefix+n+".network"] = b.String()
+	}
+	return files
+}
+
+func (d DNS) render() string {
+	if len(d.Servers) == 0 && len(d.Search) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Managed by DPlaneOS - do not edit\n\n[Resolve]\n")
+	if len(d.Servers) > 0 {
+		b.WriteString("DNS=" + strings.Join(d.Servers, " ") + "\n")
+	}
+	if len(d.Search) > 0 {
+		b.WriteString("Domains=" + strings.Join(d.Search, " ") + "\n")
+	}
+	return b.String()
+}
+
+// Writer applies States to the system.
+type Writer struct {
+	mu           sync.Mutex
+	dir          string
+	statePath    string
+	resolvedPath string
+	networkdUp   bool
+
+	// System access; replaced in tests.
+	run        func(name string, args ...string) ([]byte, error)
+	linkExists func(name string) bool
+	linkDel    func(name string) error
+
+	state  State
+	loaded bool
+}
+
+// New returns a Writer for the given networkd directory with the default
+// state and resolved paths.
 func New(dir string) *Writer {
 	return &Writer{
-		dir:        dir,
-		networkdUp: isNetworkdActive(),
+		dir:          dir,
+		statePath:    DefaultStatePath,
+		resolvedPath: DefaultResolvedDropin,
+		networkdUp:   isServiceActive("systemd-networkd"),
+		run: func(name string, args ...string) ([]byte, error) {
+			return exec.Command(name, args...).CombinedOutput()
+		},
+		linkExists: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
+		linkDel: func(name string) error {
+			if out, err := exec.Command("ip", "link", "delete", name).CombinedOutput(); err != nil {
+				return fmt.Errorf("ip link delete %s: %v (%s)", name, err, strings.TrimSpace(string(out)))
+			}
+			return nil
+		},
 	}
 }
 
-// Default returns a Writer using the standard /etc/systemd/network path.
+var (
+	sharedOnce sync.Once
+	shared     *Writer
+)
+
+// Default returns the process-wide Writer for the standard paths. There is
+// one, so the API and GitOps work on the same state.
 func Default() *Writer {
-	return New(DefaultNetworkDir)
+	sharedOnce.Do(func() { shared = New(DefaultNetworkDir) })
+	return shared
 }
 
 // IsNetworkd reports whether systemd-networkd is the active network manager.
 func (w *Writer) IsNetworkd() bool { return w.networkdUp }
 
-// ── Static interface configuration ───────────────────────────────────────────
+// State returns a copy of the current desired state.
+func (w *Writer) State() State {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.load()
+	return w.state.Clone()
+}
 
-// SetStatic writes a static IP configuration for an interface.
-//
-// Generated files:
-//
-//	50-dplane-{iface}.network
-//
-// The file overrides any NixOS-generated DHCP config for the same interface
-// because it sorts after NixOS files (10-, 20-) and networkd uses the
-// last-matching configuration.
-func (w *Writer) SetStatic(iface, cidr, gateway string, dns []string) error {
-	if err := validateIface(iface); err != nil {
+func (w *Writer) load() {
+	if w.loaded {
+		return
+	}
+	w.loaded = true
+	b, err := os.ReadFile(w.statePath)
+	if err == nil {
+		if err := json.Unmarshal(b, &w.state); err != nil {
+			log.Printf("[networkdwriter] %s unreadable (%v); starting empty", w.statePath, err)
+		}
+		return
+	}
+	w.state = importLegacy(w.dir)
+	if len(w.state.Interfaces)+len(w.state.Bonds)+len(w.state.VLANs) > 0 {
+		log.Printf("[networkdwriter] imported the configuration of earlier versions from %s", w.dir)
+	}
+}
+
+// Apply makes next the configuration: writes its files, removes files it no
+// longer has, deletes bonds and VLANs that were removed or changed, saves the
+// state and has networkd and resolved apply it.
+func (w *Writer) Apply(next State) error {
+	if err := next.Validate(); err != nil {
 		return err
 	}
-	if cidr != "" {
-		if err := validateCIDR(cidr); err != nil {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.load()
+	return w.apply(w.state, next)
+}
+
+// Sync writes the files of the saved state again where they are missing or
+// differ (an OTA update replaces /etc outside the persisted network
+// directory, e.g. the resolved drop-in) and converts the files of earlier
+// versions. Run at daemon start.
+func (w *Writer) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.load()
+	return w.apply(w.state, w.state)
+}
+
+func (w *Writer) apply(prev, next State) error {
+	files := next.render()
+	old := map[string]string{}
+	entries, err := os.ReadDir(w.dir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasPrefix(n, FilePrefix) || strings.HasPrefix(n, legacyPrefix) {
+			b, _ := os.ReadFile(filepath.Join(w.dir, n))
+			old[n] = string(b)
+		}
+	}
+
+	// Interfaces whose configuration changes: reconfigured after the reload.
+	affected := map[string]bool{}
+	ifaceOf := func(file string) string {
+		n := strings.TrimPrefix(strings.TrimPrefix(file, FilePrefix), legacyPrefix)
+		return strings.TrimSuffix(strings.TrimSuffix(n, ".network"), ".netdev")
+	}
+	for f, c := range files {
+		if old[f] != c {
+			affected[ifaceOf(f)] = true
+		}
+	}
+	for f := range old {
+		if _, ok := files[f]; !ok {
+			affected[ifaceOf(f)] = true
+		}
+	}
+
+	// Netdevs removed or changed: networkd does not touch an existing device.
+	// The members of a recreated bond and the parent of a recreated VLAN are
+	// reconfigured too: their files did not change, but they must join the
+	// new device.
+	var errs []error
+	recreate := false
+	for _, dev := range changedDevices(prev, next) {
+		_, isBond := next.Bonds[dev]
+		_, isVLAN := next.VLANs[dev]
+		recreate = recreate || isBond || isVLAN
+		if w.linkExists(dev) {
+			if err := w.linkDel(dev); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, sl := range next.Bonds[dev].Slaves {
+			affected[sl] = true
+		}
+		if v, ok := next.VLANs[dev]; ok {
+			affected[v.Parent] = true
+		}
+	}
+
+	if err := os.MkdirAll(w.dir, 0o755); err != nil {
+		return fmt.Errorf("networkdwriter: %w", err)
+	}
+	for f, c := range files {
+		if old[f] == c {
+			continue
+		}
+		if err := atomicWrite(filepath.Join(w.dir, f), c, 0o644); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for f := range old {
+		if _, ok := files[f]; !ok {
+			if err := os.Remove(filepath.Join(w.dir, f)); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if err := w.saveState(next); err != nil {
+		errs = append(errs, err)
+	}
+	w.state = next.Clone()
+	if err := w.applyDNS(next.DNS); err != nil {
+		errs = append(errs, err)
+	}
+
+	// A device deleted here and defined again (bond mode, VLAN ID): after a
+	// reload networkd creates it, but its members stay "configuring" and never
+	// join it (systemd 255). A restart of networkd sets everything up from
+	// the files; addresses on other interfaces are kept across the restart.
+	reloadCmd := []string{"networkctl", "reload"}
+	if recreate {
+		reloadCmd = []string{"systemctl", "restart", "systemd-networkd.service"}
+	}
+	if w.networkdUp && (len(affected) > 0 || recreate) {
+		if out, err := w.run(reloadCmd[0], reloadCmd[1:]...); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %v (%s)", strings.Join(reloadCmd, " "), err, strings.TrimSpace(string(out))))
+		} else {
+			// networkd creates bonds asynchronously after the reload; a
+			// member reconfigured before its bond exists does not join it.
+			for i := 0; i < 50; i++ {
+				missing := false
+				for n := range next.Bonds {
+					if !w.linkExists(n) {
+						missing = true
+					}
+				}
+				if !missing {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			var links []string
+			for n := range affected {
+				if w.linkExists(n) {
+					links = append(links, n)
+				}
+			}
+			sort.Strings(links)
+			if len(links) > 0 {
+				if out, err := w.run("networkctl", append([]string{"reconfigure"}, links...)...); err != nil {
+					errs = append(errs, fmt.Errorf("networkctl reconfigure: %v (%s)", err, strings.TrimSpace(string(out))))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// changedDevices: bonds and VLANs of prev that next removes or defines
+// differently (mode, ID, parent, or a VLAN that turned into a bond).
+func changedDevices(prev, next State) []string {
+	var out []string
+	for n, b := range prev.Bonds {
+		if nb, ok := next.Bonds[n]; !ok || nb.Mode != b.Mode {
+			out = append(out, n)
+		}
+	}
+	for n, v := range prev.VLANs {
+		if nv, ok := next.VLANs[n]; !ok || nv != v {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (w *Writer) saveState(s State) error {
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(w.statePath), 0o755); err != nil {
+		return err
+	}
+	return atomicWrite(w.statePath, string(b)+"\n", 0o600)
+}
+
+// applyDNS writes (or removes) the resolved drop-in and restarts resolved when
+// it changed. systemd-resolved has no reload in most versions, so "systemctl
+// reload" failed and the servers were never used.
+func (w *Writer) applyDNS(d DNS) error {
+	content := d.render()
+	cur, err := os.ReadFile(w.resolvedPath)
+	exists := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if (content == "" && !exists) || (exists && string(cur) == content) {
+		return nil
+	}
+	if content == "" {
+		if err := os.Remove(w.resolvedPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(w.resolvedPath), 0o755); err != nil {
+			return err
+		}
+		if err := atomicWrite(w.resolvedPath, content, 0o644); err != nil {
 			return err
 		}
 	}
-
-	var sb strings.Builder
-	sb.WriteString("# Managed by DPlaneOS - do not edit by hand\n")
-	sb.WriteString("# Changes made via web UI. Delete this file to revert to NixOS defaults.\n\n")
-	sb.WriteString("[Match]\n")
-	sb.WriteString(fmt.Sprintf("Name=%s\n\n", iface))
-	sb.WriteString("[Network]\n")
-
-	if cidr == "" {
-		sb.WriteString("DHCP=yes\n")
-	} else {
-		sb.WriteString("DHCP=no\n")
-		sb.WriteString(fmt.Sprintf("Address=%s\n", cidr))
-		if gateway != "" {
-			sb.WriteString(fmt.Sprintf("Gateway=%s\n", gateway))
-		}
-		for _, d := range dns {
-			if d != "" {
-				sb.WriteString(fmt.Sprintf("DNS=%s\n", d))
-			}
-		}
-	}
-
-	filename := FilePrefix + sanitizeIface(iface) + ".network"
-	return w.writeAndReload(filename, sb.String())
-}
-
-// SetDHCP configures an interface for DHCP, removing any static config.
-func (w *Writer) SetDHCP(iface string, dns []string) error {
-	return w.SetStatic(iface, "", "", dns)
-}
-
-// Snapshot returns the current DPlaneOS config file for an interface, for
-// Restore. existed is false when there is none (NixOS defaults apply).
-func (w *Writer) Snapshot(iface string) (content string, existed bool, err error) {
-	if err := validateIface(iface); err != nil {
-		return "", false, err
-	}
-	data, err := os.ReadFile(filepath.Join(w.dir, FilePrefix+sanitizeIface(iface)+".network"))
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return string(data), true, nil
-}
-
-// Restore puts back a Snapshot and makes networkd re-apply it to the live
-// interface (addresses added by the change are dropped).
-func (w *Writer) Restore(iface, content string, existed bool) error {
-	if err := validateIface(iface); err != nil {
-		return err
-	}
-	filename := FilePrefix + sanitizeIface(iface) + ".network"
-	var err error
-	if existed {
-		err = w.writeAndReload(filename, content)
-	} else {
-		err = w.removeAndReload(filename)
-	}
-	if err != nil {
-		return err
-	}
-	if !w.networkdUp {
-		return nil
-	}
-	if out, err := exec.Command("networkctl", "reconfigure", iface).CombinedOutput(); err != nil {
-		return fmt.Errorf("networkctl reconfigure %s: %v (%s)", iface, err, strings.TrimSpace(string(out)))
+	if out, err := w.run("systemctl", "try-restart", "systemd-resolved.service"); err != nil {
+		return fmt.Errorf("restart systemd-resolved: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-// RemoveInterface deletes the DPlaneOS network config for an interface.
-// After removal, NixOS's own config (or networkd defaults) take over.
-func (w *Writer) RemoveInterface(iface string) error {
-	if err := validateIface(iface); err != nil {
+// ── Pending changes ───────────────────────────────────────────────────────────
+// A change is applied at once and kept only when confirmed. The previous state
+// is saved next to the state file until then, so an unconfirmed change is
+// also reverted when the daemon restarts in between (or the machine reboots:
+// networkd brings up the new configuration, the daemon reverts it at start).
+
+type pending struct {
+	Previous State     `json:"previous"`
+	Deadline time.Time `json:"deadline"`
+}
+
+func (w *Writer) pendingPath() string { return w.statePath + ".pending" }
+
+// ApplyPending applies next and records the current state to revert to. It
+// fails when a change is already waiting for confirmation.
+func (w *Writer) ApplyPending(next State, deadline time.Time) error {
+	if err := next.Validate(); err != nil {
 		return err
 	}
-	filename := FilePrefix + sanitizeIface(iface) + ".network"
-	return w.removeAndReload(filename)
-}
-
-// ── VLAN configuration ────────────────────────────────────────────────────────
-
-// SetVLAN writes .netdev and .network files for a VLAN interface.
-//
-// Generated files:
-//
-//	50-dplane-{parent}.{vid}.netdev   - creates the vlan device
-//	50-dplane-{parent}.{vid}.network  - attaches vlan to parent
-//	50-dplane-{iface}.network         - network config for the vlan interface
-func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []string) error {
-	if err := validateIface(iface); err != nil {
-		return err
-	}
-	if err := validateIface(parent); err != nil {
-		return fmt.Errorf("parent: %w", err)
-	}
-	if vid < 1 || vid > 4094 {
-		return fmt.Errorf("VLAN ID %d out of range 1-4094", vid)
-	}
-
-	// 1. .netdev file - creates the VLAN device
-	netdev := fmt.Sprintf(
-		"# Managed by DPlaneOS\n\n[NetDev]\nName=%s\nKind=vlan\n\n[VLAN]\nId=%d\n",
-		iface, vid,
-	)
-	netdevFile := FilePrefix + sanitizeIface(parent) + "." + fmt.Sprintf("%d", vid) + ".netdev"
-	if err := w.writeFile(netdevFile, netdev); err != nil {
-		return fmt.Errorf("write netdev: %w", err)
-	}
-
-	// 2. Parent .network attachment - tells networkd to attach the VLAN to its parent
-	// We use a dropin approach: write a companion .network file that adds the VLAN
-	// without conflicting with the parent's existing .network file.
-	parentAttach := fmt.Sprintf(
-		"# Managed by DPlaneOS - attaches VLAN %d to %s\n\n[Match]\nName=%s\n\n[Network]\nVLAN=%s\n",
-		vid, parent, parent, iface,
-	)
-	parentFile := FilePrefix + sanitizeIface(parent) + "-vlan" + fmt.Sprintf("%d", vid) + ".network"
-	if err := w.writeFile(parentFile, parentAttach); err != nil {
-		return fmt.Errorf("write parent attachment: %w", err)
-	}
-
-	// 3. VLAN interface .network - IP config for the VLAN itself
-	var ifNet strings.Builder
-	ifNet.WriteString("# Managed by DPlaneOS\n\n")
-	ifNet.WriteString("[Match]\n")
-	ifNet.WriteString(fmt.Sprintf("Name=%s\n\n", iface))
-	ifNet.WriteString("[Network]\n")
-	if cidr == "" {
-		ifNet.WriteString("DHCP=yes\n")
-	} else {
-		ifNet.WriteString("DHCP=no\n")
-		ifNet.WriteString(fmt.Sprintf("Address=%s\n", cidr))
-		for _, d := range dns {
-			if d != "" {
-				ifNet.WriteString(fmt.Sprintf("DNS=%s\n", d))
-			}
-		}
-	}
-	ifFile := FilePrefix + sanitizeIface(iface) + ".network"
-	if err := w.writeFile(ifFile, ifNet.String()); err != nil {
-		return fmt.Errorf("write vlan network: %w", err)
-	}
-
-	return w.reload()
-}
-
-// RemoveVLAN deletes all DPlaneOS files for a VLAN.
-func (w *Writer) RemoveVLAN(iface, parent string, vid int) error {
-	files := []string{
-		FilePrefix + sanitizeIface(parent) + "." + fmt.Sprintf("%d", vid) + ".netdev",
-		FilePrefix + sanitizeIface(parent) + "-vlan" + fmt.Sprintf("%d", vid) + ".network",
-		FilePrefix + sanitizeIface(iface) + ".network",
-	}
-	for _, f := range files {
-		path := filepath.Join(w.dir, f)
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			log.Printf("[networkdwriter] WARN: remove %s: %v", path, err)
-		}
-	}
-	return w.reload()
-}
-
-// ── Bond configuration ────────────────────────────────────────────────────────
-
-// SetBond writes .netdev and .network files for a bond interface.
-//
-// Generated files:
-//
-//	50-dplane-bond-{name}.netdev      - creates the bond device
-//	50-dplane-bond-{name}.network     - network config for the bond
-//	50-dplane-{slave}.network         - binds each slave to the bond
-func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string, dns []string) error {
-	if err := validateIface(name); err != nil {
-		return err
-	}
-	for _, s := range slaves {
-		if err := validateIface(s); err != nil {
-			return fmt.Errorf("slave %q: %w", s, err)
-		}
-	}
-
-	ndMode, err := bondModeToNetworkd(mode)
-	if err != nil {
-		return err
-	}
-
-	// 1. Bond .netdev - creates the bond device
-	netdev := fmt.Sprintf(
-		"# Managed by DPlaneOS\n\n[NetDev]\nName=%s\nKind=bond\n\n[Bond]\nMode=%s\n",
-		name, ndMode,
-	)
-	if err := w.writeFile(FilePrefix+"bond-"+sanitizeIface(name)+".netdev", netdev); err != nil {
-		return fmt.Errorf("write bond netdev: %w", err)
-	}
-
-	// 2. Bond .network - IP configuration
-	var bondNet strings.Builder
-	bondNet.WriteString("# Managed by DPlaneOS\n\n")
-	bondNet.WriteString("[Match]\n")
-	bondNet.WriteString(fmt.Sprintf("Name=%s\n\n", name))
-	bondNet.WriteString("[Network]\n")
-	if cidr == "" {
-		bondNet.WriteString("DHCP=yes\n")
-	} else {
-		bondNet.WriteString("DHCP=no\n")
-		bondNet.WriteString(fmt.Sprintf("Address=%s\n", cidr))
-		for _, d := range dns {
-			if d != "" {
-				bondNet.WriteString(fmt.Sprintf("DNS=%s\n", d))
-			}
-		}
-	}
-	if err := w.writeFile(FilePrefix+"bond-"+sanitizeIface(name)+".network", bondNet.String()); err != nil {
-		return fmt.Errorf("write bond network: %w", err)
-	}
-
-	// 3. Slave .network files - bind each slave to the bond
-	for _, slave := range slaves {
-		slaveNet := fmt.Sprintf(
-			"# Managed by DPlaneOS - slave of bond %s\n\n[Match]\nName=%s\n\n[Network]\nBond=%s\n",
-			name, slave, name,
-		)
-		slaveFile := FilePrefix + sanitizeIface(slave) + "-slave-" + sanitizeIface(name) + ".network"
-		if err := w.writeFile(slaveFile, slaveNet); err != nil {
-			log.Printf("[networkdwriter] WARN: write slave %s: %v", slave, err)
-		}
-	}
-
-	return w.reload()
-}
-
-// RemoveBond deletes all DPlaneOS files for a bond and its slaves.
-func (w *Writer) RemoveBond(name string, slaves []string) error {
-	files := []string{
-		FilePrefix + "bond-" + sanitizeIface(name) + ".netdev",
-		FilePrefix + "bond-" + sanitizeIface(name) + ".network",
-	}
-	for _, s := range slaves {
-		files = append(files, FilePrefix+sanitizeIface(s)+"-slave-"+sanitizeIface(name)+".network")
-	}
-	for _, f := range files {
-		path := filepath.Join(w.dir, f)
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			log.Printf("[networkdwriter] WARN: remove %s: %v", path, err)
-		}
-	}
-	return w.reload()
-}
-
-// ── DNS (global resolver) ─────────────────────────────────────────────────────
-
-// SetGlobalDNS writes /etc/systemd/resolved.conf.d/50-dplane.conf
-// to set system-wide DNS resolvers via systemd-resolved.
-// This is separate from per-interface DNS (handled in SetStatic/SetVLAN/SetBond).
-func (w *Writer) SetGlobalDNS(servers []string) error {
-	for _, s := range servers {
-		if !isValidIP(s) {
-			return fmt.Errorf("invalid DNS server: %q", s)
-		}
-	}
-
-	resolvedDropin := "/etc/systemd/resolved.conf.d"
-	if err := os.MkdirAll(resolvedDropin, 0755); err != nil {
-		return fmt.Errorf("create resolved.conf.d: %w", err)
-	}
-
-	var sb strings.Builder
-	sb.WriteString("# Managed by DPlaneOS - do not edit by hand\n\n")
-	sb.WriteString("[Resolve]\n")
-	sb.WriteString(fmt.Sprintf("DNS=%s\n", strings.Join(servers, " ")))
-	sb.WriteString("FallbackDNS=1.1.1.1 8.8.8.8\n")
-
-	path := filepath.Join(resolvedDropin, "50-dplane.conf")
-	if err := atomicWrite(path, sb.String()); err != nil {
-		return fmt.Errorf("write resolved dropin: %w", err)
-	}
-
-	// Reload resolved
-	if isServiceActive("systemd-resolved") {
-		if err := exec.Command("systemctl", "reload", "systemd-resolved").Run(); err != nil {
-			log.Printf("[networkdwriter] WARN: reload systemd-resolved: %v", err)
-		}
-	}
-
-	log.Printf("[networkdwriter] DNS set: %v", servers)
-	return nil
-}
-
-// ── List managed files ────────────────────────────────────────────────────────
-
-// ListManagedFiles returns all files in the networkd directory that were
-// written by DPlaneOS (those with the FilePrefix prefix).
-func (w *Writer) ListManagedFiles() ([]string, error) {
-	entries, err := os.ReadDir(w.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), FilePrefix) {
-			files = append(files, e.Name())
-		}
-	}
-	return files, nil
-}
-
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-// writeAndReload writes a single file then reloads networkd.
-func (w *Writer) writeAndReload(filename, content string) error {
-	if err := w.writeFile(filename, content); err != nil {
-		return err
-	}
-	return w.reload()
-}
-
-// removeAndReload deletes a file then reloads networkd.
-func (w *Writer) removeAndReload(filename string) error {
-	path := filepath.Join(w.dir, filename)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", filename, err)
-	}
-	return w.reload()
-}
-
-// writeFile atomically writes content to dir/filename.
-func (w *Writer) writeFile(filename, content string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
-	if err := os.MkdirAll(w.dir, 0755); err != nil {
-		return fmt.Errorf("networkdwriter: mkdir %s: %w", w.dir, err)
+	w.load()
+	if _, err := os.Stat(w.pendingPath()); err == nil {
+		return ErrPending
 	}
-	path := filepath.Join(w.dir, filename)
-	return atomicWrite(path, content)
+	b, err := json.Marshal(pending{Previous: w.state, Deadline: deadline})
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(w.pendingPath(), string(b), 0o600); err != nil {
+		return err
+	}
+	if err := w.apply(w.state, next); err != nil {
+		// Partly applied: go back now instead of waiting for the timeout.
+		var p pending
+		_ = json.Unmarshal(b, &p)
+		if rerr := w.apply(w.state, p.Previous); rerr != nil {
+			log.Printf("[networkdwriter] revert after failed apply: %v", rerr)
+		}
+		os.Remove(w.pendingPath())
+		return err
+	}
+	return nil
 }
 
+// ErrPending: another change waits for confirmation.
+var ErrPending = errors.New("another network change is waiting for confirmation; confirm it or wait until it is reverted")
+
+// HasPending reports whether a change waits for confirmation, and until when.
+func (w *Writer) HasPending() (bool, time.Time) {
+	b, err := os.ReadFile(w.pendingPath())
+	if err != nil {
+		return false, time.Time{}
+	}
+	var p pending
+	_ = json.Unmarshal(b, &p)
+	return true, p.Deadline
+}
+
+// Confirm keeps the pending change.
+func (w *Writer) Confirm() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := os.Remove(w.pendingPath()); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNothingPending
+		}
+		return err
+	}
+	return nil
+}
+
+// ErrNothingPending: there is no change to confirm (it may have been reverted).
+var ErrNothingPending = errors.New("no network change is waiting for confirmation (it may already have been reverted)")
+
+// RevertPending applies the state from before the pending change.
+func (w *Writer) RevertPending() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b, err := os.ReadFile(w.pendingPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrNothingPending
+		}
+		return err
+	}
+	var p pending
+	if err := json.Unmarshal(b, &p); err != nil {
+		os.Remove(w.pendingPath())
+		return fmt.Errorf("pending change unreadable: %w", err)
+	}
+	w.load()
+	err = w.apply(w.state, p.Previous)
+	os.Remove(w.pendingPath())
+	return err
+}
+
+// ── Live configuration ────────────────────────────────────────────────────────
+
+// LiveConfig reads how an interface is configured now (for an interface the
+// state does not have yet, e.g. the parent of a first VLAN): DHCP when it has
+// a dynamic address, else its global addresses and the default gateway on it.
+func (w *Writer) LiveConfig(iface string) (Iface, error) {
+	out, err := w.run("ip", "-j", "addr", "show", "dev", iface)
+	if err != nil {
+		return Iface{}, fmt.Errorf("ip addr show %s: %v (%s)", iface, err, strings.TrimSpace(string(out)))
+	}
+	var links []struct {
+		AddrInfo []struct {
+			Family    string `json:"family"`
+			Local     string `json:"local"`
+			Prefixlen int    `json:"prefixlen"`
+			Scope     string `json:"scope"`
+			Dynamic   bool   `json:"dynamic"`
+		} `json:"addr_info"`
+	}
+	if err := json.Unmarshal(out, &links); err != nil {
+		return Iface{}, fmt.Errorf("ip addr show %s: %w", iface, err)
+	}
+	var ifc Iface
+	for _, l := range links {
+		for _, a := range l.AddrInfo {
+			if a.Scope != "global" {
+				continue
+			}
+			if a.Dynamic {
+				ifc.DHCP = true
+				continue
+			}
+			ifc.Addresses = append(ifc.Addresses, fmt.Sprintf("%s/%d", a.Local, a.Prefixlen))
+		}
+	}
+	if len(ifc.Addresses) > 0 {
+		if out, err := w.run("ip", "-j", "route", "show", "default", "dev", iface); err == nil {
+			var routes []struct {
+				Gateway  string `json:"gateway"`
+				Protocol string `json:"protocol"`
+			}
+			if json.Unmarshal(out, &routes) == nil {
+				for _, r := range routes {
+					if r.Gateway != "" && r.Protocol != "dhcp" {
+						ifc.Gateway = r.Gateway
+						break
+					}
+				}
+			}
+		}
+	}
+	return ifc, nil
+}
+
+// LiveDHCP returns the interfaces that have a dynamic (DHCP) address now.
+func (w *Writer) LiveDHCP() map[string]bool {
+	out, err := w.run("ip", "-j", "addr", "show")
+	res := map[string]bool{}
+	if err != nil {
+		return res
+	}
+	var links []struct {
+		Ifname   string `json:"ifname"`
+		AddrInfo []struct {
+			Dynamic bool `json:"dynamic"`
+		} `json:"addr_info"`
+	}
+	if json.Unmarshal(out, &links) != nil {
+		return res
+	}
+	for _, l := range links {
+		for _, a := range l.AddrInfo {
+			if a.Dynamic {
+				res[l.Ifname] = true
+			}
+		}
+	}
+	return res
+}
+
+// ── Legacy import ─────────────────────────────────────────────────────────────
+
+// importLegacy reads DPlaneOS files without a state file: those earlier
+// versions wrote (50-dplane-*), or current ones whose state file is gone: static
+// or DHCP interfaces, VLANs and bonds.
+func importLegacy(dir string) State {
+	s := State{Interfaces: map[string]Iface{}, Bonds: map[string]Bond{}, VLANs: map[string]VLAN{}}
+	entries, _ := os.ReadDir(dir)
+	type netFile struct {
+		name, bond string
+		ifc        Iface
+		vlans      []string
+	}
+	var nets []netFile
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), legacyPrefix) && !strings.HasPrefix(e.Name(), FilePrefix) {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		kv := map[string][]string{}
+		for _, l := range strings.Split(string(b), "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(l), "=")
+			if ok && !strings.HasPrefix(k, "#") {
+				kv[k] = append(kv[k], v)
+			}
+		}
+		first := func(k string) string {
+			if len(kv[k]) > 0 {
+				return kv[k][0]
+			}
+			return ""
+		}
+		switch {
+		case strings.HasSuffix(e.Name(), ".netdev") && first("Kind") == "bond":
+			s.Bonds[first("Name")] = Bond{Mode: first("Mode")}
+		case strings.HasSuffix(e.Name(), ".netdev") && first("Kind") == "vlan":
+			var id int
+			fmt.Sscanf(first("Id"), "%d", &id)
+			s.VLANs[first("Name")] = VLAN{ID: id}
+		case strings.HasSuffix(e.Name(), ".network"):
+			nf := netFile{name: first("Name"), bond: first("Bond"), vlans: kv["VLAN"]}
+			nf.ifc.DHCP = first("DHCP") == "yes"
+			nf.ifc.Addresses = kv["Address"]
+			nf.ifc.Gateway = first("Gateway")
+			nets = append(nets, nf)
+		}
+	}
+	for _, nf := range nets {
+		if nf.bond != "" {
+			if b, ok := s.Bonds[nf.bond]; ok {
+				b.Slaves = append(b.Slaves, nf.name)
+				s.Bonds[nf.bond] = b
+			}
+			continue
+		}
+		for _, v := range nf.vlans {
+			if vl, ok := s.VLANs[v]; ok {
+				vl.Parent = nf.name
+				s.VLANs[v] = vl
+			}
+		}
+		if nf.name != "" && (nf.ifc.DHCP || len(nf.ifc.Addresses) > 0 || nf.ifc.Gateway != "") {
+			s.Interfaces[nf.name] = nf.ifc
+		}
+	}
+	for n, v := range s.VLANs {
+		if v.Parent == "" || v.ID == 0 {
+			delete(s.VLANs, n)
+		}
+	}
+	for n, b := range s.Bonds {
+		if len(b.Slaves) == 0 || !bondModes[b.Mode] {
+			delete(s.Bonds, n)
+		}
+	}
+	// A legacy VLAN parent had its own configuration in another file; keep
+	// DHCP when it had none (it lost its address with the old layout anyway).
+	for _, v := range s.VLANs {
+		if _, ok := s.Interfaces[v.Parent]; !ok && s.BondOf(v.Parent) == "" {
+			if _, isBond := s.Bonds[v.Parent]; !isBond {
+				s.Interfaces[v.Parent] = Iface{DHCP: true}
+			}
+		}
+	}
+	if s.Validate() != nil {
+		log.Printf("[networkdwriter] earlier configuration in %s is inconsistent; not imported", dir)
+		return State{}
+	}
+	return s
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 // atomicWrite writes content to path using a tmp-then-rename pattern.
-func atomicWrite(path, content string) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".dplane-net-*.tmp")
+func atomicWrite(path, content string, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".dplane-net-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create tmp: %w", err)
 	}
@@ -477,6 +889,11 @@ func atomicWrite(path, content string) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("write tmp: %w", err)
 	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("close tmp: %w", err)
@@ -485,65 +902,16 @@ func atomicWrite(path, content string) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rename: %w", err)
 	}
-	log.Printf("[networkdwriter] wrote %s", path)
 	return nil
-}
-
-// reload signals systemd-networkd to re-read configuration.
-// Uses `networkctl reload` which is non-disruptive (does not restart networkd).
-func (w *Writer) reload() error {
-	if !w.networkdUp {
-		log.Printf("[networkdwriter] networkd not active - files written, reload skipped")
-		return nil
-	}
-	out, err := exec.Command("networkctl", "reload").CombinedOutput()
-	if err != nil {
-		// The file is written (it applies at the next boot), but the live
-		// system did not pick it up: callers must not report it as applied.
-		return fmt.Errorf("file written, but networkctl reload failed: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-	log.Printf("[networkdwriter] networkctl reload: OK")
-	return nil
-}
-
-func isNetworkdActive() bool {
-	return isServiceActive("systemd-networkd")
 }
 
 func isServiceActive(service string) bool {
-	err := exec.Command("systemctl", "is-active", "--quiet", service).Run()
-	return err == nil
+	return exec.Command("systemctl", "is-active", "--quiet", service).Run() == nil
 }
 
-// bondModeToNetworkd converts human-readable mode strings to networkd Bond.Mode values.
-func bondModeToNetworkd(mode string) (string, error) {
-	modes := map[string]string{
-		"balance-rr":    "balance-rr",
-		"active-backup": "active-backup",
-		"balance-xor":   "balance-xor",
-		"broadcast":     "broadcast",
-		"802.3ad":       "802.3ad",
-		"balance-tlb":   "balance-tlb",
-		"balance-alb":   "balance-alb",
-		// Common aliases
-		"lacp":          "802.3ad",
-		"failover":      "active-backup",
-		"roundrobin":    "balance-rr",
-	}
-	if m, ok := modes[mode]; ok {
-		return m, nil
-	}
-	return "", fmt.Errorf("unknown bond mode %q", mode)
-}
-
-// sanitizeIface replaces characters that are valid in interface names but
-// not in filenames (specifically '.') with '-'.
-func sanitizeIface(iface string) string {
-	return strings.NewReplacer(".", "-").Replace(iface)
-}
-
-func validateIface(iface string) error {
-	if len(iface) == 0 || len(iface) > 16 {
+// ValidateIface checks an interface name (kernel limit 15 characters).
+func ValidateIface(iface string) error {
+	if len(iface) == 0 || len(iface) > 15 {
 		return fmt.Errorf("interface name %q: invalid length", iface)
 	}
 	for _, c := range iface {
@@ -552,25 +920,8 @@ func validateIface(iface string) error {
 			return fmt.Errorf("interface name %q: invalid character %q", iface, c)
 		}
 	}
-	return nil
-}
-
-func validateCIDR(cidr string) error {
-	if !strings.Contains(cidr, "/") {
-		return fmt.Errorf("CIDR %q: must include prefix length (e.g. 192.168.1.1/24)", cidr)
+	if iface == "." || iface == ".." {
+		return fmt.Errorf("interface name %q: invalid", iface)
 	}
 	return nil
 }
-
-func isValidIP(s string) bool {
-	if len(s) == 0 || len(s) > 45 {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || c == '.' || c == ':') {
-			return false
-		}
-	}
-	return true
-}
-

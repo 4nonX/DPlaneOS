@@ -46,15 +46,11 @@ func GetHealthIPMI(host, user, password string) (Health, error) {
 
 	h := Health{CollectedAt: time.Now(), OverallStatus: "ok", PowerState: PowerUnknown}
 
-	// Parse "Name | Value Unit | Status" lines
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.Split(line, "|")
-		if len(parts) < 3 {
+		name, valueStr, statusStr, ok := parseSDRLine(line)
+		if !ok {
 			continue
 		}
-		name := strings.TrimSpace(parts[0])
-		valueStr := strings.TrimSpace(parts[1])
-		statusStr := strings.ToLower(strings.TrimSpace(parts[len(parts)-1]))
 
 		if name == "" || valueStr == "na" || valueStr == "No Reading" {
 			continue
@@ -99,6 +95,27 @@ func GetHealthIPMI(host, user, password string) (Health, error) {
 	}
 
 	return h, nil
+}
+
+// parseSDRLine reads one line of `ipmitool sdr elist` (name | sensor id |
+// status | entity | reading) or `sdr list` (name | reading | status). The
+// former parser read every line as the latter, so with elist (the command
+// used) a value came from the sensor id ("30h") and the status from the
+// reading.
+func parseSDRLine(line string) (name, reading, status string, ok bool) {
+	parts := strings.Split(line, "|")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	switch len(parts) {
+	case 5:
+		name, status, reading = parts[0], parts[2], parts[4]
+	case 3:
+		name, reading, status = parts[0], parts[1], parts[2]
+	default:
+		return "", "", "", false
+	}
+	return name, reading, strings.ToLower(status), name != ""
 }
 
 // GetEventsIPMI fetches the BMC System Event Log via ipmitool sel.
@@ -162,6 +179,18 @@ func classifyIPMISensor(name, unit string) string {
 }
 
 func ipmiSensorStatus(s string) string {
+	// ipmitool's sdr elist states: ok, nc/lnc/unc (non-critical), cr/lcr/ucr
+	// (critical), nr/lnr/unr (non-recoverable), ns (no reading).
+	switch s {
+	case "ok":
+		return "ok"
+	case "nc", "lnc", "unc":
+		return "warning"
+	case "cr", "lcr", "ucr", "nr", "lnr", "unr":
+		return "critical"
+	case "ns":
+		return "unknown"
+	}
 	switch {
 	case strings.Contains(s, "ok") || strings.Contains(s, "nominal"):
 		return "ok"

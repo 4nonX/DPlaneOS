@@ -1,168 +1,91 @@
-# DPlaneOS - OTA Update NixOS Module
-# ─────────────────────────────────────────────────────────────────────────────
-# Installs the OTA update script and two systemd units:
+# nixos/ota-module.nix
+# -----------------------------------------------------------------------------
+# DPlaneOS updates: the check after the reboot, and the automatic way back.
 #
-#   dplaneos-ota-health.service  - runs the health check once after boot
-#   dplaneos-ota-health.timer    - fires the service 90s after boot
+# An update (Updates page; POST /api/system/updates/nixos/apply) points the
+# system flake /etc/nixos/flake.nix at the new release, builds it with
+# `nixos-rebuild boot` as the next boot entry and reboots. After the boot
+# dplaneos-ota-health runs dplaneos-update-health: when the new system works
+# it is kept; otherwise the generation that ran before becomes the boot
+# default again, the flake is restored and the machine reboots into it.
 #
-# The 90-second delay gives all services time to fully start before the
-# health check evaluates them. If the check fails, the OTA script reverts
-# the bootloader to the previous slot and reboots.
-#
-# Update distribution model:
-#   Updates are distributed via GitHub (git pull + nixos-rebuild switch).
-#   Nix's content-addressed store and flake lockfile pins provide integrity
-#   guarantees at the system level. The OTA script handles A/B slot switching
-#   and post-reboot health checks only: it does not verify signatures because
-#   the Nix build chain already does this. If a non-GitHub distribution model
-#   is adopted in the future, add signature verification at that point.
-# ─────────────────────────────────────────────────────────────────────────────
-
+# This replaces the A/B partition scheme (ota-update.sh), which could not
+# work: it needed boot entries named "DPlaneOS (Slot A/B)" that nothing
+# created and a root filesystem per slot (the system always mounts
+# system-a), and nothing built its update bundles. NixOS generations give
+# the same atomic switch and rollback. (Older installs keep an unused
+# system-b partition; disko.nix no longer creates it.)
+# -----------------------------------------------------------------------------
 { config, lib, pkgs, ... }:
-
-# ── Module-level option declarations ─────────────────────────────────────────
 
 let
   cfg = config.services.dplaneos;
 
-# ── OTA script package ────────────────────────────────────────────────────────
-# Reads ota-update.sh at build time and wraps it with a hermetic PATH so
-# the script works identically regardless of the host's environment.
-
-  otaScript = pkgs.writeShellScriptBin "dplaneos-ota-update" (
-    builtins.readFile ./ota-update.sh
-  );
-
-  otaPackage = pkgs.symlinkJoin {
-    name    = "dplaneos-ota";
-    paths   = [ otaScript ];
-    buildInputs = [ pkgs.makeWrapper ];
-    postBuild = ''
-      wrapProgram $out/bin/dplaneos-ota-update \
-        --prefix PATH : ${lib.makeBinPath [
-          pkgs.coreutils
-          pkgs.util-linux    # mountpoint, lsblk, blkid, findmnt
-          pkgs.systemd       # bootctl, systemctl
-          pkgs.postgresql    # psql for health checks
-          pkgs.curl
-          pkgs.gnutar
-          pkgs.openssl
-          pkgs.python3
-          config.boot.zfs.package  # matches the kernel module
-          # awk: inactive-slot lookup and the degraded-pool health check;
-          # without it the check found no degraded pools and passed.
-          pkgs.gawk
-          pkgs.findutils
-          pkgs.gnugrep
-          pkgs.gnused
-        ]} \
-        ${lib.optionalString (cfg.ota.signingKey != "")
-          "--set OTA_PUBLIC_KEY '${cfg.ota.signingKey}'"}
-    '';
+  updateHealth = pkgs.writeShellApplication {
+    name = "dplaneos-update-health";
+    runtimeInputs = with pkgs; [
+      coreutils curl jq systemd
+      config.boot.zfs.package   # zpool
+      config.nix.package        # nix-env
+    ];
+    text = builtins.readFile ./dplaneos-update-health.sh;
   };
-
 in {
-
-# ── Options ───────────────────────────────────────────────────────────────────
+  imports = [
+    (lib.mkRemovedOptionModule [ "services" "dplaneos" "ota" "signingKey" ]
+      "Updates are NixOS generations of the system flake (Updates page); signed A/B bundles are no longer used.")
+  ];
 
   options.services.dplaneos.ota = {
-
     enable = lib.mkOption {
       type    = lib.types.bool;
       default = true;
       description = ''
-        Enable the OTA update health-check timer.
-        When true, a one-shot systemd timer fires 90 seconds after boot and
-        runs the post-update health check if a pending-revert marker exists.
-        Disable only if you are managing updates entirely outside of DPlaneOS.
+        Check the system after an update's reboot and go back to the previous
+        generation when the check fails. Disable only if you manage updates
+        entirely outside of DPlaneOS.
       '';
     };
-
     healthCheckDelay = lib.mkOption {
       type    = lib.types.str;
-      default = "90s";
+      default = "60s";
       description = ''
-        How long after boot to wait before running the OTA health check.
-        Must be a valid systemd time span (e.g. "90s", "2min").
-        Increase this if your services take longer than 90 seconds to start.
+        How long after boot the check starts (a systemd time span). The check
+        then retries for checkSeconds while the services start.
       '';
     };
-
-    signingKey = lib.mkOption {
-      type    = lib.types.str;
-      default = "";
-      description = ''
-        Base64-encoded Ed25519 public key used to verify OTA update bundles.
-        When empty (the default), the OTA script refuses all update bundles
-        because signature verification fails - no unsigned updates are applied.
-        Set this to the DPlaneOS release signing public key before deploying.
-
-        Generate a keypair with:
-          openssl genpkey -algorithm ed25519 -out ota-signing.pem
-          openssl pkey -pubout -in ota-signing.pem | base64 -w0
-
-        Example (in your flake or configuration.nix):
-          services.dplaneos.ota.signingKey = "MCowBQYDK2VwAyEA...";
-      '';
+    checkSeconds = lib.mkOption {
+      type    = lib.types.int;
+      default = 300;
+      description = "How long the check waits for the system to become healthy before it goes back.";
     };
-
   };
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-
   config = lib.mkIf (cfg.enable && cfg.ota.enable) {
+    environment.systemPackages = [ updateHealth ];
 
-    # ── Install the OTA script system-wide ──────────────────────────────────
-    # Makes `dplaneos-ota-update` available in PATH for both the systemd
-    # service and manual invocation by the administrator.
-    environment.systemPackages = [ otaPackage ];
-
-    # ── Health check service ─────────────────────────────────────────────────
-    # Runs once after boot. Checks daemon API, ZFS pool health, /persist mount,
-    # and Samba if shares are configured. If a pending-revert marker exists and
-    # any check fails, initiates an automatic slot revert and reboots.
-    # If no marker exists, exits immediately (no-op on normal boots).
     systemd.services.dplaneos-ota-health = {
-      description = "DPlaneOS OTA Update Health Check";
-      after       = [
-        "network.target"
-        "dplaned.service"
-        "smbd.service"
-        "zfs.target"
-      ];
-      # NOT in wantedBy: activated exclusively by the timer below.
-      # This prevents the health check from running on every boot even
-      # when no OTA update is pending.
+      description = "DPlaneOS update check after reboot";
+      after    = [ "network.target" "dplaned.service" "nginx.service" "postgresql.service" "samba-smbd.service" "zfs.target" ];
+      environment = {
+        CHECK_SECONDS = toString cfg.ota.checkSeconds;
+        CHECK_UNITS = lib.concatStringsSep " " ([ "nginx.service" ]
+          ++ lib.optional cfg.database.createLocally "postgresql.service");
+      };
       serviceConfig = {
         Type            = "oneshot";
-        RemainAfterExit = false;
-        ExecStart       = "${otaPackage}/bin/dplaneos-ota-update --health-check";
-        # Prefix with '-' so systemd does not treat a non-zero exit as
-        # a service failure when the script self-initiates a reboot.
-        ExecStartPost   = "-/bin/true";
+        ExecStart       = "${updateHealth}/bin/dplaneos-update-health";
+        TimeoutStartSec = cfg.ota.checkSeconds + 120;
       };
     };
 
-    # ── Health check timer ───────────────────────────────────────────────────
-    # One-shot timer - fires once per boot, never repeats.
-    # If no pending-revert marker is present, the service exits in <1s.
-    # Configured delay is tunable via services.dplaneos.ota.healthCheckDelay.
     systemd.timers.dplaneos-ota-health = {
-      description = "DPlaneOS OTA Health Check (post-boot, one-shot)";
+      description = "DPlaneOS update check after reboot";
       wantedBy    = [ "timers.target" ];
       timerConfig = {
         OnBootSec = cfg.ota.healthCheckDelay;
         Unit      = "dplaneos-ota-health.service";
-        # No OnUnitActiveSec - ensures the timer fires exactly once per boot.
       };
     };
-
-    # ── Persistent OTA state directory ──────────────────────────────────────
-    # /persist/ota holds the pending-revert marker, active-slot marker,
-    # and the OTA log. Lives on the persist partition so it survives reboots.
-    systemd.tmpfiles.rules = [
-      "d /persist/ota 0750 root root -"
-    ];
-
   };
 }
