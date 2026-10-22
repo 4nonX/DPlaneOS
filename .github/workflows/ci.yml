@@ -679,7 +679,9 @@ jobs:
           path: flake.lock
 
       - name: Evaluate NixOS modules and checks
-        run: nix flake check --no-build .
+        # One output per Nix process: `nix flake check --no-build` peaked at
+        # 14 GB with all VM checks and was killed on the 16 GB runner.
+        run: bash .github/scripts/eval-flake.sh .
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5C: LIVE BOOT ISO BUILD - Live boot environment (no installation)

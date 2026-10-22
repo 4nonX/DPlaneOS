@@ -239,8 +239,10 @@ pkgs.testers.nixosTest {
             b.succeed(f"iptables -I INPUT -s {ip_a} -j DROP && iptables -I OUTPUT -d {ip_a} -j DROP")
             b.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Quorate: *No'", timeout=90)
             a.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Quorate: *Yes'", timeout=90)
-            assert cmap(b).get("coordinator") in (None, ""), "b has no quorum: nobody coordinates there"
-            assert cmap(a)["coordinator"] == node_a
+            # The daemon notices the quorum change on its next poll, not at
+            # once (an immediate check raced it on fast runners).
+            wait_for(lambda: cmap(b).get("coordinator") in (None, ""), "b has no quorum: nobody coordinates there", 60)
+            wait_for(lambda: cmap(a).get("coordinator") == node_a, "a's half keeps a as coordinator", 60)
             ok(api(a, "POST", "/api/rbac/users", {"action": "update", "id": user(a, "bob")["id"], "email": "bob@coordinator.lan"}), "a changes bob")
             ok(api(b, "POST", "/api/rbac/users", {"action": "update", "id": user(b, "bob")["id"], "email": "bob@isolated.lan"}), "b changes bob")
             for m in (a, b):

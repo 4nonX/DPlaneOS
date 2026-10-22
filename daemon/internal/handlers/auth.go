@@ -278,7 +278,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 				go syncShareIdentities(h.db)
 			}
 			if storedKey == "" {
-				if keys, err := scram.Derive(req.Password); err == nil {
+				// The salt comes from the password hash: paired nodes that hold
+				// the same password fill in the same keys (a random salt made
+				// their credentials differ, a sync conflict on the user).
+				if keys, err := scram.DeriveFor(req.Password, storedHash); err == nil {
 					h.db.Exec(`UPDATE users SET scram_salt = $1, scram_iterations = $2, scram_stored_key = $3, scram_server_key = $4 WHERE id = $5`, //nolint:errcheck
 						scram.EncodeBase64(keys.Salt), keys.Iterations, scram.EncodeBase64(keys.StoredKey), scram.EncodeBase64(keys.ServerKey), userID)
 				}

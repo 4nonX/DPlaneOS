@@ -49,6 +49,17 @@ func Derive(password string) (*Keys, error) {
 	return deriveWithSalt(password, salt, DefaultIterations)
 }
 
+// DeriveFor computes the keys for a password that is already stored as
+// passwordHash (bcrypt), with a salt taken from that hash: nodes holding the
+// same password hash (installer, GitOps, config sync) derive the same keys,
+// so filling them in at a login does not make the nodes' credentials differ.
+// The bcrypt hash carries its own random salt, so the SCRAM salt is still
+// unique per password set.
+func DeriveFor(password, passwordHash string) (*Keys, error) {
+	h := sha512.Sum512([]byte("dplaneos-scram-salt\x00" + passwordHash))
+	return deriveWithSalt(password, h[:SaltLength], DefaultIterations)
+}
+
 func deriveWithSalt(password string, salt []byte, iterations int) (*Keys, error) { //nolint:unparam
 	if iterations <= 0 {
 		iterations = DefaultIterations

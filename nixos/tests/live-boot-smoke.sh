@@ -119,8 +119,10 @@ expect 400 PUT /api/system/network '{"action":"configure","interface":"eth0","ip
 expect 400 PUT /api/system/network '{"action":"set_dns","nameservers":["1.1.1.1","not-an-ip"]}'
 expect 200 POST /api/network/confirm '{}'
 check "confirm without a pending change is refused" test "$(json .success)" = false
-# netplan does not exist on NixOS: the raw-config endpoint refuses clearly.
-expect 501 POST /api/network/apply '{"config_path":"/etc/netplan/50-x.yaml","new_config":"network: {}"}'
+# The netplan endpoint (never available on NixOS) is gone; a change waiting
+# for confirmation is listed instead.
+expect 404 POST /api/network/apply '{"config_path":"/etc/netplan/50-x.yaml","new_config":"network: {}"}'
+expect 200 GET /api/network/pending
 
 # The daemon's mounts must be visible on the host (Samba, NFS, users), not
 # only inside the daemon's service namespace.
@@ -210,7 +212,7 @@ check "testparm: [tm] no longer a Time Machine target" lacks "$(section tm)" 'ti
 
 # ── Schedules: timers are installed and actually run (token, PATH, hook) ────
 expect 200 POST /api/snapshots/schedules '[{"dataset":"smoke2/share","frequency":"daily","retention":5,"enabled":true}]'
-SNAP_UNIT=dplaneos-snap-smoke2-share-daily
+SNAP_UNIT=dplaneos-snap-0-smoke2-share-daily # snap-<index>-<dataset>-<frequency>
 check "snapshot timer active" systemctl is-active --quiet "$SNAP_UNIT.timer"
 check "snapshot unit ExecStart is absolute" contains "$(systemctl cat "$SNAP_UNIT.service")" 'ExecStart=/'
 check "snapshot timer service runs" systemctl start "$SNAP_UNIT.service"

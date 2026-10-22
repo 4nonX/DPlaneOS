@@ -1051,6 +1051,12 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT(username) DO UPDATE SET
 				smb_nt_hash=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.smb_nt_hash ELSE '' END,
+				-- SCRAM keys of the old password would keep it valid for SCRAM
+				-- logins; cleared, they are filled in at the next login.
+				scram_salt=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.scram_salt ELSE '' END,
+				scram_iterations=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.scram_iterations ELSE 0 END,
+				scram_stored_key=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.scram_stored_key ELSE '' END,
+				scram_server_key=CASE WHEN users.password_hash = EXCLUDED.password_hash THEN users.scram_server_key ELSE '' END,
 				password_hash=EXCLUDED.password_hash,
 				email=EXCLUDED.email,
 				role=EXCLUDED.role,

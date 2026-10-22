@@ -177,3 +177,25 @@ func TestChallengeStore_MissingID(t *testing.T) {
 func saltedPassword(password string, salt []byte, iterations int) ([]byte, error) {
 	return pbkdf2.Key(sha512.New, password, salt, iterations, sha512.Size)
 }
+
+// Nodes holding the same password hash fill in the same keys; another hash
+// of the same password (set again) gives another salt.
+func TestDeriveForIsStablePerPasswordHash(t *testing.T) {
+	a, err := DeriveFor("Pass-1!", "$2a$10$abcdefghijklmnopqrstuv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := DeriveFor("Pass-1!", "$2a$10$abcdefghijklmnopqrstuv")
+	c, _ := DeriveFor("Pass-1!", "$2a$10$zyxwvutsrqponmlkjihgfe")
+	if !bytes.Equal(a.Salt, b.Salt) || !bytes.Equal(a.StoredKey, b.StoredKey) || !bytes.Equal(a.ServerKey, b.ServerKey) {
+		t.Fatal("same password hash, different keys")
+	}
+	if bytes.Equal(a.Salt, c.Salt) || len(a.Salt) != SaltLength || a.Iterations != DefaultIterations {
+		t.Fatalf("salt %x / %x, iterations %d", a.Salt, c.Salt, a.Iterations)
+	}
+	// The keys are ordinary SCRAM keys for the password.
+	d, _ := deriveWithSalt("Pass-1!", a.Salt, a.Iterations)
+	if !bytes.Equal(d.StoredKey, a.StoredKey) {
+		t.Fatal("keys do not match the password")
+	}
+}
