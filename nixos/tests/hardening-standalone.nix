@@ -54,7 +54,12 @@ pkgs.testers.nixosTest {
 
     def up():
         n.wait_for_unit("dplaned.service")
-        n.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=180)
+        try:
+            n.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=180)
+        except Exception:
+            # The console carries no journal: show why the API is not answering.
+            print(n.execute("journalctl -b --no-pager -u dplaned -u nginx -u postgresql | tail -n 120; curl -s -o /dev/null -w 'status: %{http_code}\\n' http://localhost/api/system/status")[1])
+            raise
 
     def api(method, path, body=None, auth=True):
         cmd = f"curl -s --max-time 180 -X {method} {shlex.quote('http://localhost' + path)} -H 'Content-Type: application/json'"

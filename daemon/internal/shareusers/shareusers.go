@@ -16,6 +16,7 @@
 package shareusers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -30,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf16"
 
 	"golang.org/x/crypto/md4" //nolint:staticcheck // the NT hash is MD4 by definition
@@ -88,13 +90,23 @@ type System struct {
 
 // HostSystem uses the real tools (getent, useradd, pdbedit, ...).
 func HostSystem() System {
+	// A tool that blocks (a Samba database lock left by a power loss, an NSS
+	// module waiting on a service) must not hold the caller forever.
 	run := func(stdin, name string, args ...string) ([]byte, error) {
-		cmd := exec.Command(name, args...)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, name, args...)
 		cmd.Stdin = strings.NewReader(stdin)
-		return cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return out, fmt.Errorf("%s: timed out after 60s", name)
+		}
+		return out, err
 	}
 	getent := func(db, key string) []string {
-		out, err := exec.Command("getent", db, key).Output()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "getent", db, key).Output()
 		if err != nil {
 			return nil
 		}

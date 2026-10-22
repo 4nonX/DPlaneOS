@@ -80,11 +80,12 @@
     "usbhid"   # USB HID (keyboard at install time)
     "sd_mod"   # SCSI disk layer (required by ahci)
     # Boot disks enableAllHardware leaves out
-    "vmw_pvscsi"                         # VMware ESXi paravirtual SCSI
     "mpt3sas" "mpi3mr" "megaraid_sas"    # Broadcom/LSI SAS HBAs and MegaRAID
     "aacraid" "hpsa" "smartpqi"          # Adaptec, HPE Smart Array
     "usb_storage"                        # USB sticks (uas is included)
     "sdhci_pci" "mmc_block"              # eMMC / SD
+  ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86 [
+    "vmw_pvscsi" # VMware ESXi paravirtual SCSI (x86 only: not in the arm64 kernel)
   ];
   boot.kernelModules = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "kvm-intel" # Intel VT-x virtualisation support (x86_64 only)

@@ -1172,9 +1172,13 @@ func main() {
 	// Rewrite the share config from the DB at startup: after an upgrade (new
 	// per-share columns) or on a fresh live boot the file is stale or a stub.
 	// Accounts first: the share configuration names them (valid users).
+	// In the background: the API must come up even if an account tool is
+	// slow or stuck (after a power loss; each call has a time limit).
 	shareusers.EnableHost()
-	handlers.SyncShareIdentitiesAtStartup(db)
-	shareCRUDHandler.RegenerateSMBConf()
+	go func() {
+		handlers.SyncShareIdentitiesAtStartup(db)
+		shareCRUDHandler.RegenerateSMBConf()
+	}()
 	r.Handle("/api/shares/list", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares/by-path", permRoute("shares", "read", shareCRUDHandler.GetSharesByPath)).Methods("GET")

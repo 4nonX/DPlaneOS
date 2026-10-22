@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 // ShareCRUDHandler handles SMB share CRUD operations
@@ -584,7 +585,14 @@ func (h *ShareCRUDHandler) RegenerateSMBConf() {
 //
 // err means Samba was not updated; warning means the shares are live but the
 // Time Machine Bonjour advertisement could not be refreshed.
+// smbRegenMu makes reading the shares and writing the configuration one
+// step: the startup run (in the background) and a change through the API
+// must not write an older view last.
+var smbRegenMu sync.Mutex
+
 func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
+	smbRegenMu.Lock()
+	defer smbRegenMu.Unlock()
 	shares, err := smbconf.LoadEnabled(h.db)
 	if err != nil {
 		log.Printf("SMB REGEN ERROR: %v", err)

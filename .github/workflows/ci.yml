@@ -779,7 +779,7 @@ jobs:
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
 
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-live toplevel: $SYSTEM_PATH"; exit 1
           fi
@@ -1292,7 +1292,7 @@ jobs:
           # nix eval --raw coerces the derivation to its outPath (/nix/store/...).
           # The store paths are already present (built during nix build .#iso above)
           # so this is just a metadata lookup, not a rebuild.
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel")  # warnings go to the log, not into the path
           echo "System toplevel: $SYSTEM_PATH"
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-for-iso toplevel: $SYSTEM_PATH"; exit 1
@@ -1403,7 +1403,7 @@ jobs:
           # is just the ISO derivation itself - the squashfs content is embedded,
           # not tracked as store dependencies. Query the system toplevel that was
           # baked into the squashfs; its closure is the full package inventory.
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel")  # warnings go to the log, not into the path
           echo "System toplevel: $SYSTEM_PATH"
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-arm toplevel: $SYSTEM_PATH"; exit 1
