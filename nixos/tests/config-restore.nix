@@ -140,7 +140,9 @@ pkgs.testers.nixosTest {
         assert ok(api("GET", "/api/snapshots/schedules"), "schedules")["schedules"] == [], "schedule of before the restore not back"
     with subtest("console recovery: reset a password, turn off 2FA (dplaneos-recovery)"):
         # The menu runs these with the package's environment; run them the same way.
-        env = machine.succeed(r"sed -n 's/^export \(DPLANED\|DPLANEOS_DSN\|DPLANEOS_SECRETS_KEY\)=/\1=/p' $(readlink -f $(command -v dplaneos-recovery))").strip().replace("\n", " ")
+        # writeShellApplication sets runtimeEnv as `NAME=value` + `export NAME`
+        env = machine.succeed(r"grep -E '^(DPLANED|DPLANEOS_DSN|DPLANEOS_SECRETS_KEY)=' $(readlink -f $(command -v dplaneos-recovery))").strip().replace("\n", " ")
+        assert env.count("=") >= 3 and "DPLANED=/" in env, env
         rec = f"env {env} sh -c '\"$DPLANED\" -db-dsn \"$DPLANEOS_DSN\" -secrets-key \"$DPLANEOS_SECRETS_KEY\" \"$@\"' recover"
         listing = machine.succeed(f"{rec} -recover-list-users")
         assert "admin\tadmin\tactive" in listing, listing

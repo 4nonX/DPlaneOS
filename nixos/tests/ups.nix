@@ -71,7 +71,10 @@ pkgs.testers.nixosTest {
 
     with subtest("low battery: alert and shutdown (not hibernate)"):
         set_status("OB LB", 10)
-        machine.wait_for_console_text("UPS event: LOWBATT on ups", timeout=120)
+        # The machine powers off right away, so the journal is out of reach:
+        # look in the console log. (wait_for_console_text takes one line of
+        # its backlog per second, and the backlog holds the whole boot.)
+        retry(lambda _: "UPS event: LOWBATT on ups" in machine.get_console_log(), timeout_seconds=120)
         machine.wait_for_shutdown()
   '';
 }
