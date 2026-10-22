@@ -123,7 +123,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev postgresql-client gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
+          sudo apt-get install -y gcc libc6-dev postgresql-client-15 gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
             zfsutils-linux libzfslinux-dev pkg-config
 
       - name: Run Go Tests
@@ -226,7 +226,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
+          sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client-15 python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -273,7 +273,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -324,7 +324,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl python3-bcrypt
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl python3-bcrypt
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -372,7 +372,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -421,7 +421,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl socat iptables
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl socat iptables
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -468,7 +468,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl
 
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
@@ -523,7 +523,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl git
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl git
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -575,7 +575,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev postgresql-client python3-bcrypt curl ipmitool \
+          # pg_dump must match the server (postgres:15); the arm64 image may
+          # not carry the PostgreSQL apt repository the x64 images have.
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y gcc libc6-dev postgresql-client-15 python3-bcrypt curl ipmitool \
             zfsutils-linux nfs-kernel-server samba acl targetcli-fb
           sudo modprobe zfs
 
