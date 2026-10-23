@@ -154,5 +154,4 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **Offline installer ISO:** full NAS closure baked into squashfs; zero internet required at install time
 - **A/B boot slots:** disko-managed partition layout; safe to reinstall without touching data disks
 - **Daemon builds:** production uses a glibc build linked against libzfs (cgo); a static, CGO-free build serves CI and non-NixOS installs
-- **Plugin system:** third-party navigation and handler extensions via the plugin API
 - **AGPL-3.0:** free to use, modify, and distribute

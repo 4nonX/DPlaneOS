@@ -842,9 +842,9 @@ Responsive design overhaul: DPlaneOS interface now adapts seamlessly across all 
 
 ## v14.4.0 (2026-06-13) - "Complete Roadmap"
 
-Upgrade from: v14.3.0 - Schema migration required (migration 00011 adds `enterprise_license` and `enterprise_audit_usage` tables for licensing and audit tracking; applied automatically at startup). No breaking API changes. No breaking configuration changes.
+Upgrade from: v14.3.0. No breaking API changes. No breaking configuration changes.
 
-This release completes the full DPlaneOS v14.4.0 roadmap with all eight planned priorities shipped: enterprise licensing with Ed25519 verification, multi-forest Active Directory with automatic Samba security mode switching, comprehensive ZED event integration with 2-second progress polling, SES enclosure support (LED locate + full element status via direct SCSI ioctls), transactional storage operations, libzfs cgo bindings with thread-local handles, NFSv4 ACL layer with RFC 5661 translation, GitOps/CRUD race protection via RWMutex, and dplane-fenced SCSI-3 persistent reservations. The community edition remains free and requires no license. Enterprise customers receive signed license keys that activate the optional Compliance Engine sidecar.
+This release completes the full DPlaneOS v14.4.0 roadmap with the planned priorities shipped: multi-forest Active Directory with automatic Samba security mode switching, comprehensive ZED event integration with 2-second progress polling, SES enclosure support (LED locate + full element status via direct SCSI ioctls), transactional storage operations, libzfs cgo bindings with thread-local handles, NFSv4 ACL layer with RFC 5661 translation, GitOps/CRUD race protection via RWMutex, and dplane-fenced SCSI-3 persistent reservations.
 
 ### Storage & ZFS Operations
 
@@ -880,65 +880,11 @@ This release completes the full DPlaneOS v14.4.0 roadmap with all eight planned 
 
 ### Database & Migrations
 
-- **Goose v3 Migration Framework**: 11 numbered migrations (00001-00011) with automatic version tracking. Applied migrations are automatically skipped on subsequent startups. No manual intervention required.
+- **Goose v3 Migration Framework**: numbered migrations with automatic version tracking. Applied migrations are automatically skipped on subsequent startups. No manual intervention required.
 
 ### Fixed
 
 - **CRITICAL - Multi-forest IDMAP missing Samba security mode switch (`daemon/internal/handlers/ldap.go`, commit b1a2abf)**: When joining an Active Directory domain, the handler synced IDMAP configuration but did not switch Samba from "user" mode to "ads" mode. Result: winbindd daemon would not activate on the next nixos-rebuild, preventing IDMAP resolution. Fixed: `JoinDomain` now calls `SetSambaGlobals(SecurityMode: "ads", Realm: realm)` after successful join; `LeaveDomain` reverts to `SecurityMode: "user"` if the last joined domain is unjoined. This completes the end-to-end chain: domain join → IDMAP sync → security mode switch → NixOS configuration update → winbind activation on rebuild.
-
-### Added
-
-- **Enterprise Licensing System (`daemon/internal/handlers/license_handler.go`, migration 00011)**:
-  - `POST /api/system/license/activate`: Accepts Ed25519-signed license key (format: `base64(signature).base64(payload)`)
-  - `GET /api/system/license/status`: Returns license status (active/expired), customer name, audit limits, CE installation/running status
-  - Offline signature verification using embedded Ed25519 public key (no external API calls required)
-  - Hourly license expiration checker: automatically stops CE daemon and disables routes on expiration
-  - CE daemon lifecycle management: downloads from private repo, installs to `/opt/dplane-compliance/`, starts on port 9001
-  - Environment variable-based credential passing: CE access token via `CE_API_TOKEN` (not command-line arguments)
-
-- **License Management CLI Tools**:
-  - `dplane-gen-keypair`: Generates Ed25519 keypair for license signing (stores keys with 0600 permissions)
-  - `dplane-license-gen`: Creates signed customer license keys with configurable customer name, audit limits, expiration date, CE repo URL, version, and GitHub PAT
-
-- **Compliance Engine Integration**:
-  - `CompliancePage` (`app-react/src/pages/CompliancePage.tsx`): Embeds CE sidecar as iframe on port 9001
-  - License-gated sidebar: "Compliance" menu item only appears when licensed (real-time status polling)
-  - `LicenseTab` in `SettingsPage`: License input form, status display, three states (not activated, active with customer info, expired with renewal option)
-  - License status query with 30s `staleTime`: filters enterprise features based on license validity
-
-- **Database**:
-  - `enterprise_license` table: Stores customer name, audits limit/consumed, expiration date, CE repo URL/version, activation timestamp
-  - `enterprise_audit_usage` table: Audit trail of report generations for compliance tracking
-
-- **Documentation**:
-  - `ENTERPRISE_LICENSE_SETUP.md`: Complete integration workflow (keypair generation, license creation, customer activation, expiration handling)
-  - Feature maturity table update: Enterprise Licensing marked as Stable
-
-### Security
-
-- **Offline Ed25519 Verification**: No external API calls for license validation; works completely offline
-- **Public Key Embedding**: Verification key embedded in daemon binary via environment variable `DPLANE_LICENSE_PUBLIC_KEY`
-- **Credential Isolation**: CE access token from license payload, passed via environment variable (not process arguments visible in `ps`)
-- **File Permissions**: License files 0600 (owner-only read/write), keypair files 0600
-- **Zero Hardcoding**: All URLs, credentials, and customer information from signed license payload
-- **Immutable License Format**: `base64(signature).base64(json_payload)` prevents tampering while maintaining human-readability for debugging
-
-### Technical Details
-
-- **License Payload**: Customer name, audit limits (1-N or -1 for unlimited), expiration date (RFC3339 or "never"), CE repo URL, CE version, GitHub PAT, issued timestamp
-- **Signature Algorithm**: Ed25519 (FIPS 186-5 compliant, widely supported)
-- **Verification**: Atomic signature + payload validation; no separate checks that could be exploited
-- **Daemon Integration**: Hourly background goroutine checks expiration; stops daemon gracefully, disables routes on expiration
-- **UI Updates**: License status polled every 30 seconds; sidebar menu updates reflect current license state instantly
-
-### Testing
-
-✓ Go tests pass with race detector  
-✓ TypeScript: tsc --noEmit = 0 errors  
-✓ ESLint: npm run lint = clean  
-✓ App bundle: npm run build successful, committed  
-✓ CLI tools: dplane-gen-keypair and dplane-license-gen compile and run end-to-end  
-✓ Security: No hardcoded URLs, credentials, or customer information  
 
 ---
 
@@ -987,7 +933,7 @@ This release closes the NixOS module gap in the Path A' two-node setup, ships a 
 - **`HIGH-AVAILABILITY.md` Path A' install example** now uses `colocatedWitness = true` instead of the manual `witnessAddress`/`etcdEndpoints` port-2381 entries.
 
 - **Frontend lint audit - zero warnings (`app-react/src/`)**: All 105 ESLint warnings and the one blocking error present since v14.2.0 are eliminated. Fixes span 25 files:
-  - `any` → proper types across `api.ts`, `Toast.tsx`, `AppShell.tsx`, `PendingChangesSidebar.tsx`, `GlobalSearch.tsx`, `plugins.ts`, `stores/ws.ts`, `stores/notifications.ts`, `FirewallPage.tsx`, `GitOpsPage.tsx`, `AlertsPage.tsx`, `CertificatesPage.tsx`, `DatasetsPage.tsx`, `DockerPage.tsx`, `FTPPage.tsx`, `HardwarePage.tsx`, `NetworkPage.tsx`, `PoolsPage.tsx`, `ReplicationPage.tsx`, `SettingsPage.tsx`
+  - `any` → proper types across `api.ts`, `Toast.tsx`, `AppShell.tsx`, `PendingChangesSidebar.tsx`, `GlobalSearch.tsx`, `stores/ws.ts`, `stores/notifications.ts`, `FirewallPage.tsx`, `GitOpsPage.tsx`, `AlertsPage.tsx`, `CertificatesPage.tsx`, `DatasetsPage.tsx`, `DockerPage.tsx`, `FTPPage.tsx`, `HardwarePage.tsx`, `NetworkPage.tsx`, `PoolsPage.tsx`, `ReplicationPage.tsx`, `SettingsPage.tsx`
   - `react-hooks/set-state-in-effect` resolved across `Sidebar.tsx`, `GlobalSearch.tsx`, `AlertsPage.tsx`, `DockerPage.tsx`, `FTPPage.tsx`, `HAPage.tsx`, `HardwarePage.tsx`, `LoginPage.tsx`, `NetworkPage.tsx`, `ReplicationPage.tsx`, `S3Page.tsx`, `SettingsPage.tsx` by replacing seeding effects with dirty-tracking or event-driven state patterns
   - `react-hooks/exhaustive-deps` resolved in `DatasetsPage.tsx`, `PoolsPage.tsx`, `HardwarePage.tsx` by wrapping logical expressions in their own `useMemo`
   - `react-hooks/purity` resolved in `GitOpsPage.tsx` by replacing `useRef(Math.random())` with `useState(() => ...)` lazy initialiser
@@ -1410,8 +1356,6 @@ Upgrade from: v12.4.0 - No schema migration required. No breaking API changes. N
 - **SupportPage pre-upgrade snapshot list links to NixOS generations rollback**: A note added pointing operators to Settings > NixOS > Generations for snapshot rollback.
 
 - **MonitoringPage title made consistent**: Page title changed from "System Monitoring" to "Inotify Watches" to match the sidebar label. Subtitle updated to explain what inotify watches are and why hitting the limit causes silent failures in file-watching applications.
-
-- **SettingsPage license key field has explanatory hint**: Previously showed a bare input with no explanation. Hint added: activates optional add-ons, leave blank for the standard open-source build.
 
 - **SSHKeysPage port change shows clear reconnection warning**: A `toast.warning` is shown after a successful port change, naming the new port and noting that connections on the old port will be refused after the next `nixos-rebuild switch`.
 
@@ -2248,11 +2192,9 @@ Upgrade from: v7.4.3 - Drop-in. `sudo bash install.sh --upgrade`
 Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
-- **Forensic Compliance Engine (Physical Truth)**: 
+- **Firewall drift detection (Physical Truth)**: 
     - Introduced a kernel-level forensic probe that uses `nft -j` to extract the live firewall state directly from the Linux kernel.
     - **Divergence Detection**: The system now automatically detects and flags "Shadow Ports" (manually opened via CLI/SSH) that deviate from the declarative D-PlaneOS intent.
-    - **Integrity Monitor (Pro/Compliance)**: A real-time audit dashboard in the Compliance Engine that warns administrators of physical state drift before generating official SOC2 reports.
-    - **Certified Evidence**: Forensic probe results are now embedded directly into the "Persistence Proof" section of PDF compliance reports.
 - **Security Whitelisting**: Safely integrated the forensic probe into the `cmdutil` whitelist, ensuring zero-bypass security for high-privilege kernel operations.
 
 ---
@@ -2322,8 +2264,8 @@ Upgrade from: v7.2.0 - Drop-in. `sudo bash install.sh --upgrade`
     - Real-time "Join Status" tracking and NTP synchronization verification.
 - **Transparent SMB Authentication**
     - Bridged Samba into the Active Directory domain for transparent Kerberos-based file share access on Windows clients.
-- **Native Audit Transparency (Enterprise Polish)**
-    - Restored local audit log visibility with paginated table and filtering, protected by RBAC and stealth licensing logic.
+- **Audit Log**
+    - Local audit log with paginated table and filtering, protected by RBAC.
 - **Unified Sharing & ZFS Explorer**
     - Integrated SMB and NFS share management directly into the ZFS dataset tree.
     - Added native UI support for ZFS snapshots, rollbacks, and recursive child creation.
@@ -2611,12 +2553,6 @@ Upgrade from: v5.3.5 - Drop-in. `sudo bash install.sh --upgrade`
 - **Audit Log Automation & Maintenance**
   - **Auto-Rotation**: Weekly background log purging based on user-defined retention settings.
   - **Space Reclamation**: Integrated `VACUUM` into both manual and scheduled rotations to reclaim SQLite disk space.
-- **Enterprise Integration Hooks**
-  - **License Management**: New "Enterprise License Key" field in System Settings as the gateway for premium features.
-  - **Plugin Injection System**: Added hooks for dynamic injection of navigation, routes, and settings, enabling a true "Zero-Pollution" open-core architecture.
-
-### Changed
-- **"Zero-Pollution" Open-Core**: Migrated the Audit Log UI, routes, and navigation from the Community Edition to the Enterprise Compliance Engine (PRO). The core repository is now free of all proprietary UI traces.
 
 ---
 
@@ -2628,7 +2564,7 @@ Upgrade from: v5.3.4 - Drop-in. `sudo bash install.sh --upgrade`
 
 - **API Authentication**
   - Patched `sessionMiddleware` to support `Authorization: Bearer` tokens.
-  - Enables secure programmatic access for sidecars and automation using long-lived API tokens.
+  - Enables secure programmatic access for automation using long-lived API tokens.
   - Backported `ValidateAPITokenAndGetUser` to the security core.
 
 ---
@@ -2642,7 +2578,6 @@ Upgrade from: v5.3.3 - Drop-in. `sudo bash install.sh --upgrade`
 - **Enterprise Security Hardening**
   - **Environment-Based Auth**: Modified the installation process to store sensitive API tokens in a dedicated `EnvironmentFile` (`/etc/dplaneos/daemon.env`) with `0600` permissions.
   - **Systemd Integration**: Updated service definitions to use `EnvironmentFile` instead of command-line flags, preventing token leakage in process lists (`ps aux`).
-- **Unified Versioning**: Synchronized version identifiers across CE and Enterprise suites for cleaner release tracking.
 
 ---
 
@@ -2706,7 +2641,6 @@ Upgrade from: v5.2.3 - Drop-in. `sudo bash install.sh --upgrade`
   - **Data Safety**: Destructive operations (pool destruction) now require explicit "type-to-confirm" validation.
 - **Enhanced Modal UX**
   - **Universal Close Mechanisms**: Added high-visibility "X" buttons to modal headers and standardized "Cancel" buttons in all footers.
-  - **Determinism Hardening**: Aligned the Enterprise sidecar with the new v6.0.2 "Deterministic Integrity" invariants, ensuring all compliance reports reflect accurate convergence state.
 - **CI Gating**: Integrated the consolidated `D-PlaneOS` CI pipeline as a mandatory release gate for all production builds.
   - **Portal-based Rendering**: Migrated the entire modal architecture to React Portals, rendering into `#modal-root` to ensure modals are always top-level and immune to parent stacking context glitches.
 

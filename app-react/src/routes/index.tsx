@@ -70,9 +70,7 @@ import { S3Page }            from '@/pages/S3Page'
 import { AuditPage }         from '@/pages/AuditPage'
 import { ConfigHistoryPage } from '@/pages/ConfigHistoryPage'
 import { ConfigSyncPage }    from '@/pages/ConfigSyncPage'
-import { CompliancePage }    from '@/pages/CompliancePage'
 import { ApiExplorerPage }   from '@/pages/ApiExplorerPage'
-import { getPluginRoutes }   from '@/plugins'
 
 // Silence unused React import warning (needed for JSX in some tsx files)
 void React
@@ -142,7 +140,6 @@ const s3Route         = createRoute({ getParentRoute: () => protectedRoute, path
 const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
 const historyRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/history',       component: ConfigHistoryPage })
 const configSyncRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/config-sync',   component: ConfigSyncPage })
-const complianceRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/compliance',   component: CompliancePage })
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
 const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
 const gitOpsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/gitops',        component: GitOpsPage })
@@ -179,7 +176,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, versionsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, volumesRoute, iscsiRoute, nvmeRoute, cloudRoute,
-    sandboxRoute, delegationRoute, backupRoute, auditRoute, historyRoute, configSyncRoute, complianceRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
+    sandboxRoute, delegationRoute, backupRoute, auditRoute, historyRoute, configSyncRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,
@@ -187,7 +184,6 @@ const routeTree = rootRoute.addChildren([
     settingsRoute, updatesRoute, alertsRoute, upsRoute, powerRoute,
     hardwareRoute, ipmiRoute, haRoute, clusterRoute, haSetupRoute, fleetRoute, monitoringRoute, apiExplRoute, logsRoute,
     reportingRoute, supportRoute, terminalRoute,
-    ...getPluginRoutes(protectedRoute),
   ]),
 ])
 

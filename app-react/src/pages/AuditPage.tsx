@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -22,59 +21,18 @@ interface AuditLogsResponse {
   offset: number
 }
 
-interface CEStatusResponse {
-  success: boolean
-  has_compliance_engine: boolean
-}
-
 export function AuditPage() {
-  const [hasCE, setHasCE] = useState<boolean | null>(null)
-  
-  useEffect(() => {
-    // Stealth license check
-    api.get<CEStatusResponse>('/api/system/ce-status')
-      .then(res => setHasCE(!!res.has_compliance_engine))
-      .catch(() => setHasCE(false))
-  }, [])
-
   const { data, isLoading, error } = useQuery<AuditLogsResponse>({
     queryKey: ['audit-logs'],
     queryFn: () => api.get<AuditLogsResponse>('/api/system/audit/logs?limit=100'),
-    enabled: hasCE === true,
     refetchInterval: 30000 // Refresh every 30s
   })
 
-  // 1. Initial Loading State
-  if (hasCE === null) {
-    return (
-      <div className="page-container" style={{ padding: '40px' }}>
-        <Skeleton style={{ height: '40px', width: '200px', marginBottom: '24px' }} />
-        <Skeleton style={{ height: '400px', borderRadius: 'var(--radius-xl)' }} />
-      </div>
-    )
-  }
-
-  // 2. CE Not Present - show clear informational state
-  if (!hasCE) {
-    return (
-      <div className="page-container" style={{ height: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="empty-state" style={{ maxWidth: '480px', border: 'none', background: 'transparent' }}>
-          <Icon name="policy" className="empty-state-icon" style={{ fontSize: '64px', color: 'var(--text-tertiary)' }} />
-          <h2 className="empty-state-title">Audit Log</h2>
-          <p className="empty-state-body">
-            Audit logging records all system changes and security events. No audit entries have been recorded yet.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // 3. Authenticated CE View
   return (
     <div className="page-container" style={{ animation: 'fadeIn 0.4s ease' }}>
       <header className="page-header">
-        <h1 className="page-title">System Audit</h1>
-        <p className="page-subtitle">Real-time cryptographic audit trail of system-wide operations.</p>
+        <h1 className="page-title">Audit Log</h1>
+        <p className="page-subtitle">Changes and security events, newest first.</p>
       </header>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -140,11 +98,8 @@ export function AuditPage() {
         )}
       </div>
       
-      <footer style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-         <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            Showing last {data?.logs?.length || 0} events. Data integrity verified via HMAC-SHA256 chain.
-         </div>
-         <div className="badge badge-neutral">Licensed Enterprise Component</div>
+      <footer style={{ marginTop: '24px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+        Showing the last {data?.logs?.length || 0} events.
       </footer>
     </div>
   )

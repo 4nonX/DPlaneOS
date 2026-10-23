@@ -29,7 +29,6 @@ Feature maturity, honestly:
 | Hot-swap detection and auto-import | Stable | udev + ZED, exercised regularly. |
 | LDAP / Active Directory integration | Beta | Winbind NSS integration shipped in v14.1.0: AD users resolve in `ls -l`, ACLs, and SMB. |
 | OIDC / SSO (Authorization Code + PKCE) | Beta | Keycloak, Authentik, Dex, Entra ID, and any OIDC-compliant provider. |
-| Enterprise Licensing & Compliance Engine | Stable | Ed25519 offline license verification. Optional compliance reporting sidecar. Automatic activation and expiration handling. |
 | Updates with automatic rollback (NixOS generations) | Beta | Proven in a NixOS VM test (good update kept, broken update rolled back); no field updates yet. |
 | Live boot (ephemeral, no install needed) | Stable | Trial the software, manage pools, run containers from USB. Full daemon/UI in RAM. Persistence optional via USB. |
 | GitOps reconciliation | Beta | Structural sync (pools, datasets, shares, stacks) and capture-from-live both work. Safety rails (block destroy on used data, block pool destroy unconditionally) are well-tested. Edge cases at the property-coverage frontier still surfacing. |

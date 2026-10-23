@@ -79,7 +79,6 @@ func main() {
 	convergenceCheck := flag.Bool("convergence-check", false, "Verify if system has converged and exit (CONVERGED|NOT_CONVERGED)")
 	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
-	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	upsEventGroup := flag.String("ups-event-group", "", "Group that may send UPS events to /run/dplaneos/ups-events.sock (upsmon's notify command; empty: root only)")
@@ -322,9 +321,6 @@ func main() {
 	if err := seedDefaults(db); err != nil {
 		log.Fatalf("Seed defaults failed: %v", err)
 	}
-
-	// Phase 6.2: Bootstrap CE Token if provided
-	bootstrapCEToken(db, *ceTokenFile)
 
 	// Ensure reconciler tables exist (network state persistence for non-NixOS)
 	if err := reconciler.EnsureSchema(db); err != nil {
@@ -665,10 +661,6 @@ func main() {
 	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
 	r.Handle("/api/system/diagnostics", permRoute("system", "read", systemHandler.RunDiagnostics)).Methods("POST", "OPTIONS")
 
-	// Enterprise license handlers
-	r.Handle("/api/system/license/activate", permRoute("system", "admin", handlers.LicenseActivateHandler(db))).Methods("POST")
-	r.Handle("/api/system/license/status", permRoute("system", "read", handlers.LicenseStatusHandler(db))).Methods("GET")
-
 	// SMART handlers
 	r.HandleFunc("/api/hardware/smart/cron-hook", handlers.RunSMARTCronHook).Methods("POST")
 	r.Handle("/api/hardware/smart/run-now", permRoute("system", "write", handlers.RunSMARTNow)).Methods("POST")
@@ -837,7 +829,6 @@ func main() {
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
 	r.Handle("/api/system/audit/logs", permRoute("audit", "read", auditRotationHandler.GetAuditLogs)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
-	r.Handle("/api/system/ce-status", permRoute("system", "read", auditRotationHandler.GetCEStatus)).Methods("GET")
 
 	secretsRotationHandler := handlers.NewSecretsRotationHandler(db, *secretsKeyPath)
 	r.Handle("/api/system/secrets/rotate", permRoute("system", "admin", secretsRotationHandler.RotateKeys)).Methods("POST")
@@ -1675,15 +1666,6 @@ func main() {
 	handlers.StartCapacityMonitor()
 	log.Println("Capacity guardian started (checks every 5 min)")
 
-	// Start license expiration checker
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			handlers.CheckLicenseExpiration(db)
-		}
-	}()
-
 	// Start server in goroutine
 	go func() {
 		log.Printf("Listening on %s", *listenAddr)
@@ -2050,55 +2032,6 @@ func runRotation(db *sql.DB) {
 		return
 	}
 	log.Printf("MAINTENANCE: Audit log rotation completed successfully")
-}
-
-// bootstrapCEToken reads a token from a file and ensures it exists in api_tokens for the admin user.
-func bootstrapCEToken(db *sql.DB, path string) {
-	if path == "" {
-		return
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to read CE token file %s: %v", path, err)
-		return
-	}
-	token := strings.TrimSpace(string(content))
-	if token == "" {
-		return
-	}
-
-	// We assume token is the raw token. DPlaneOS stores token_hash and token_prefix.
-	// For simplicity in this bootstrap, we store it if no token named 'nixos-gitops' exists.
-	var adminID int
-	err = db.QueryRow("SELECT id FROM users WHERE username='admin'").Scan(&adminID)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to find admin user: %v", err)
-		return
-	}
-
-	// security.GenerateTokenHash is what we would normally use, but we don't want to re-hash on every boot.
-	// Actually, let's just check if a token with this prefix exists.
-	prefix := ""
-	if len(token) > 8 {
-		prefix = token[:8]
-	}
-
-	var exists int
-	db.QueryRow("SELECT COUNT(*) FROM api_tokens WHERE name='compliance-engine-token'").Scan(&exists)
-	if exists > 0 {
-		return // Already bootstrapped
-	}
-
-	// Use security package to hash it correctly
-	hash := security.HashToken(token)
-	_, err = db.Exec(`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes)
-		VALUES ($1, 'compliance-engine-token', $2, $3, 'admin')`,
-		adminID, hash, prefix)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to insert CE token: %v", err)
-	} else {
-		log.Printf("BOOTSTRAP: Compliance Engine API token injected for admin")
-	}
 }
 
 func isInternalCronHook(r *http.Request, token string) bool {
