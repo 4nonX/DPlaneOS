@@ -16,6 +16,7 @@ import (
 
 	"dplaned/internal/database"
 	"dplaned/internal/nvmet"
+	"dplaned/internal/stacklock"
 )
 
 // groupsTestDB opens a migrated schema of its own (DATABASE_DSN, as in CI).
@@ -210,5 +211,49 @@ func TestMoveRefusesTargetInMaintenance(t *testing.T) {
 	}
 	if g, _ := Get(db, "data"); g.Owner != "ka" {
 		t.Errorf("group moved: %+v", g)
+	}
+}
+
+// A stack busy with a deploy, edit or update is not started by the
+// activation pass at the same time (the CI groups test hit "container name
+// already in use"), and the owner never writes its own stack files back.
+func TestActivateLeavesABusyStackToItsOperation(t *testing.T) {
+	db := groupsTestDB(t)
+	tr := &fakeTransport{members: []string{"ka", "kb"}}
+	m, _ := maintenanceManager(t, db, tr, []string{"ka", "kb"})
+	if _, err := m.CreateWith("data", Shared, []string{"tank"}, []string{"kb"}, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var ups []string
+	m.res.LocalStacks = func() ([]StackDef, error) {
+		return []StackDef{{Name: "hb-busy", YAML: "services:\n  hb:\n    volumes:\n      - /mnt/tank/data:/data\n"}}, nil
+	}
+	m.res.WriteStack = func(s StackDef) error {
+		t.Errorf("the owner wrote its own stack %s back", s.Name)
+		return nil
+	}
+	m.res.StackUp = func(name string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		ups = append(ups, name)
+		return nil
+	}
+
+	unlock, ok := stacklock.TryLock("hb-busy")
+	if !ok {
+		t.Fatal("lock")
+	}
+	m.ActivateTick()
+	if len(ups) != 0 {
+		t.Fatalf("started while busy: %v", ups)
+	}
+	unlock()
+	m.ActivateTick()
+	if len(ups) != 1 || ups[0] != "hb-busy" {
+		t.Fatalf("not started once free: %v", ups)
+	}
+	if _, ok := stacklock.TryLock("hb-busy"); !ok {
+		t.Fatal("the pass kept the stack's lock")
 	}
 }

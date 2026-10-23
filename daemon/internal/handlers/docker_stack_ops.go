@@ -19,27 +19,21 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/dockerclient"
 	"dplaned/internal/jobs"
+	"dplaned/internal/stacklock"
 )
 
 // ── One operation per stack ─────────────────────────────────────────────────
 
-var stackLocks sync.Map // name -> *sync.Mutex
-
 // lockStack takes the stack's lock if it is free. Two compose runs on one
 // project at once (an edit while an update pulls) leave it half-applied.
+// The lock is shared with the storage groups and GitOps.
 func lockStack(name string) (unlock func(), ok bool) {
-	m, _ := stackLocks.LoadOrStore(name, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	if !mu.TryLock() {
-		return nil, false
-	}
-	return mu.Unlock, true
+	return stacklock.TryLock(name)
 }
 
 // ── Compose invocations ─────────────────────────────────────────────────────

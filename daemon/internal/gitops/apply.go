@@ -22,6 +22,7 @@ import (
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 	"dplaned/internal/smbconf"
+	"dplaned/internal/stacklock"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -760,6 +761,8 @@ func createStack(name string, ds *DesiredStack) error {
 		return fmt.Errorf("stack %q: %w", name, err)
 	}
 
+	defer stacklock.Lock(name)()
+
 	dir := filepath.Join(defaultStacksDir, name)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create stack dir %s: %w", dir, err)
@@ -785,6 +788,8 @@ func modifyStack(name string, ds *DesiredStack) error {
 }
 
 func deleteStack(name string) error {
+	defer stacklock.Lock(name)()
+
 	dir := filepath.Join(defaultStacksDir, name)
 	composePath := filepath.Join(dir, "docker-compose.yml")
 
