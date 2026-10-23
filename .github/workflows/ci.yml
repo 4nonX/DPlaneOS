@@ -740,6 +740,11 @@ jobs:
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
 
+      # Builds (and the ISO boot test's VM) on the /nix volume, not the small
+      # root disk left by the step above.
+      - name: Build directory on the Nix volume
+        run: sudo mkdir -p /nix/build && df -h / /nix
+
       - name: Enable KVM
         if: matrix.system == 'x86_64-linux'
         run: |
@@ -756,6 +761,10 @@ jobs:
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
             system-features = nixos-test benchmark big-parallel kvm
+            build-dir = /nix/build
+
+      - name: Check the build directory
+        run: test "$(nix config show build-dir)" = /nix/build
 
       - name: Verify VERSION matches tag
         id: version
@@ -794,9 +803,9 @@ jobs:
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
 
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.iso-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
-            echo "ERROR: could not resolve dplaneos-live toplevel: $SYSTEM_PATH"; exit 1
+            echo "ERROR: could not resolve the live ISO system: $SYSTEM_PATH"; exit 1
           fi
           nix path-info -r "$SYSTEM_PATH" --json | python3 .github/scripts/generate-iso-sbom.py "$ISO_NAME" > "${ISO_NAME}.sbom.json"
           echo "iso_sbom=${ISO_NAME}.sbom.json" >> $GITHUB_OUTPUT
@@ -959,6 +968,12 @@ jobs:
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
 
+      # The reclaimed space is the /nix volume; the root disk keeps little.
+      # The VM tests write disk images in their build directory, so builds
+      # run on the /nix volume (in /tmp they filled the root disk).
+      - name: Build directory on the Nix volume
+        run: sudo mkdir -p /nix/build && df -h / /nix
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -972,6 +987,10 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
             system-features = nixos-test benchmark big-parallel kvm
+            build-dir = /nix/build
+
+      - name: Check the build directory
+        run: test "$(nix config show build-dir)" = /nix/build
 
       - name: Partition labels (installs from before 16.0)
         run: nix build .#checks.x86_64-linux.partition-labels -L
