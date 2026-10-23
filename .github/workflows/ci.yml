@@ -791,7 +791,7 @@ jobs:
       - name: Boot the live ISO (VM test)
         if: matrix.system == 'x86_64-linux'
         timeout-minutes: 60
-        run: nix build .#checks.x86_64-linux.live-iso -L
+        run: nix build .#checks.x86_64-linux.live-iso -L --no-link  # keep ./result pointing at the ISO
 
       - name: Package ISO and generate SBOM
         id: package
