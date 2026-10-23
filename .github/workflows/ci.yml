@@ -740,6 +740,18 @@ jobs:
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
 
+      # Builds (and the ISO boot test's VM) on the /nix volume, not the small
+      # root disk left by the step above.
+      - name: Build directory on the Nix volume
+        run: sudo mkdir -p /nix/build && df -h / /nix
+
+      - name: Enable KVM
+        if: matrix.system == 'x86_64-linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Install Nix
         uses: cachix/install-nix-action@v30
         with:
@@ -748,6 +760,11 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+            system-features = nixos-test benchmark big-parallel kvm
+            build-dir = /nix/build
+
+      - name: Check the build directory
+        run: test "$(nix config show build-dir)" = /nix/build
 
       - name: Verify VERSION matches tag
         id: version
@@ -769,6 +786,13 @@ jobs:
           nix build ".#${{ matrix.iso_target }}" --print-build-logs
           ls -lh result/iso/
 
+      # The image boots into D-PlaneOS (UEFI, from the CD): until 16.0 the
+      # live ISO was a plain NixOS installer CD and nothing booted it.
+      - name: Boot the live ISO (VM test)
+        if: matrix.system == 'x86_64-linux'
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.live-iso -L --no-link  # keep ./result pointing at the ISO
+
       - name: Package ISO and generate SBOM
         id: package
         run: |
@@ -779,9 +803,9 @@ jobs:
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
 
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.iso-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
-            echo "ERROR: could not resolve dplaneos-live toplevel: $SYSTEM_PATH"; exit 1
+            echo "ERROR: could not resolve the live ISO system: $SYSTEM_PATH"; exit 1
           fi
           nix path-info -r "$SYSTEM_PATH" --json | python3 .github/scripts/generate-iso-sbom.py "$ISO_NAME" > "${ISO_NAME}.sbom.json"
           echo "iso_sbom=${ISO_NAME}.sbom.json" >> $GITHUB_OUTPUT
@@ -919,6 +943,79 @@ jobs:
         run: nix build .#checks.x86_64-linux.hardening-standalone -L
 
   # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4E: INSTALL, UPDATE AND RECOVERY - the installed system end to end
+  # (install to disk and boot it, updates with rollback, AD, UPS, restore).
+  # ════════════════════════════════════════════════════════════════════════════
+  install-vm:
+    name: Install, Update and Recovery (VMs)
+    needs: [prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Reclaim disk space for Nix store
+        uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
+
+      # The reclaimed space is the /nix volume; the root disk keeps little.
+      # The VM tests write disk images in their build directory, so builds
+      # run on the /nix volume (in /tmp they filled the root disk).
+      - name: Build directory on the Nix volume
+        run: sudo mkdir -p /nix/build && df -h / /nix
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            system-features = nixos-test benchmark big-parallel kvm
+            build-dir = /nix/build
+
+      - name: Check the build directory
+        run: test "$(nix config show build-dir)" = /nix/build
+
+      - name: Partition labels (installs from before 16.0)
+        run: nix build .#checks.x86_64-linux.partition-labels -L
+
+      - name: Installer (install to disk, boot the installed disk, log in)
+        timeout-minutes: 90
+        run: nix build .#checks.x86_64-linux.installer -L
+
+      - name: Updates (a working update is kept, a broken one rolled back)
+        timeout-minutes: 90
+        run: nix build .#checks.x86_64-linux.update -L
+
+      - name: Configuration backup, restore and console recovery
+        timeout-minutes: 45
+        run: nix build .#checks.x86_64-linux.config-restore -L
+
+      - name: Active Directory join
+        timeout-minutes: 45
+        run: nix build .#checks.x86_64-linux.ad-join -L
+
+      - name: UPS events and shutdown
+        timeout-minutes: 45
+        run: nix build .#checks.x86_64-linux.ups -L
+
+  # ════════════════════════════════════════════════════════════════════════════
   # DPlaneOS Witness images (third vote appliance, docs/admin/THIRD-VOTE.md)
   # ════════════════════════════════════════════════════════════════════════════
   witness-images:
@@ -993,7 +1090,9 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot, witness-images]
+    # Every test job: a release is drafted only when all of them pass.
+    needs: [validate, integration, config-sync, fleet-overlay, git-backend, arm64-api, convergence, storage-failure, nix-eval,
+            quorum-vm, hardening-vm, install-vm, test-live-boot, build-live-iso, iso, iso-arm, witness-images]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:

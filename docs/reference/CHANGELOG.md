@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## v16.0.0 (2026-10-22) - "Bedrock"
+## v16.0.0 (2026-10-23) - "Bedrock"
 
 Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.
 
@@ -65,6 +65,7 @@ Update promptly. The versions given are the releases that have the flaw.
 
 ### Fixed: HA and clusters
 
+- **Deploying a stack on a storage group's pool could fail with "container name already in use":** the group's activation pass on the owner saw the new stack not yet running and started it while the deploy did, and it could write a stack file read before an edit back over the edit. GitOps created and deleted stacks the same way. The stack handlers, the storage groups and GitOps now share one lock per stack: the activation pass leaves a busy stack to its operation, and stopping a group's stacks before its pool is released waits for it.
 - **Replicated groups lost the snapshot a node that was down still had:** the owner kept only its newest three replication snapshots, plus the base of a copy that answered. A copy that did not answer (a failed former owner, a node switched off) lost its last common snapshot after three intervals: the next replication there had to resend the whole pool, and after a failover the changes on the returning node could no longer be kept on the new owner (only discarded). The owner now keeps the newest snapshot each copy is known to have (the last one sent to it or received from it). Keeping the changes of a split also started from this node's newest snapshot, which may never have reached the owner; it now starts from the newest one both have. Found by the VM test `hardening-replicated` under slower timing.
 - **SCRAM keys on paired nodes:** filling in the SCRAM keys at login used a random salt, so paired nodes holding the same password derived different keys. Their credentials differed, and the user became a sync conflict that blocked the next password change (found by CI's two-node sync test). The salt is now taken from the password hash. GitOps password changes now clear the old keys (see Security).
 - **HA watchdog:** a graceful stop of `dplaned` (OTA, `nixos-rebuild`, recovery) left `/dev/watchdog` armed and reset the node ~30 s later. It is now disarmed unless this node owns storage in a cluster.
@@ -85,6 +86,7 @@ Update promptly. The versions given are the releases that have the flaw.
 
 ### Fixed: live boot
 
+- **The live ISO booted plain NixOS, without D-PlaneOS** (every live ISO since v14.8.0). The ISO was a stock NixOS installer CD that only carried the live system in its store and never started it: no daemon, no web interface, no database, and NetworkManager in place of systemd-networkd. The ISO is now the live system itself. The live-boot test had tested the live configuration in a test VM, never the image. A new test (`checks.live-iso`) boots the ISO from the CD (UEFI) and checks the daemon, the web interface, the admin setup and login, and that no unit failed.
 - **The persistence drive kept nothing:** with a `dplane-persist` drive attached, the system mounted it and made a link `/var/lib/dplaneos-persist` to it that nothing used. The database, the settings and the network configuration stayed in RAM and were lost at every shutdown. The drive is now mounted at boot, before the firewall, networkd, PostgreSQL and the daemon start. It holds `/var/lib/dplaneos`, `/etc/dplaneos`, `/etc/target` and the daemon's network files. The live-boot VM test reboots twice with the drive and checks that the admin, its login and a VLAN made through the API are still there.
 - The console help and the live-boot guide named the daemon's unit `dplaneos`; it is `dplaned`. The guide's macOS command made an HFS+ drive, which is not used (the drive must be ext4).
 - The live configuration's activation script failed (`ensureEtcDirs`) whenever the root filesystem was kept across a reboot, as in the VM tests: it touched `/etc/exports`, by then a link into the read-only store. Files are now created only when missing.
@@ -165,6 +167,11 @@ Compared with Komodo, Dockge, Portainer and Watchtower, reproduced on Docker Eng
 - **Stack updates with rollback**, **image update detection** (registry digests, no pull), **per-stack auto-update**, **Git stack webhooks** (GitHub, Gitea/Forgejo, GitLab). New API: `POST /api/docker/stacks/update`, `GET /api/docker/stacks/updates`, `POST /api/docker/stacks/updates/check`, `PUT /api/docker/stacks/settings`, `POST /api/git-sync/repos/webhook-secret`, `POST /api/git-sync/repos/webhook/{id}`.
 - 15-minute snapshot tier, recursive snapshot schedules, age-based retention (`retention_days`).
 - `services.dplaneos.memoryMax` (default `1G`) and `OOMPolicy=continue` on `dplaned`.
+
+### Tests and CI
+
+- CI now runs the installer, update, configuration restore, Active Directory, UPS and partition-label tests (job "Install, Update and Recovery"). Before, they ran only by hand.
+- The release is drafted only when every test job passes. Before, it did not wait for the hardening, fleet overlay, Git backend and arm64 API jobs.
 
 ### Documentation
 

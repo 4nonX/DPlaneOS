@@ -19,6 +19,7 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
 	"dplaned/internal/nvmet"
+	"dplaned/internal/stacklock"
 )
 
 // Group resources (Design 0001 phase 3d).
@@ -311,12 +312,17 @@ func (m *Manager) deactivate(g Group) error {
 		errs = append(errs, err)
 	}
 	for _, s := range r.Stacks {
+		// Waits for a deploy or update of the stack: it must be stopped
+		// before the pool goes.
+		unlock := stacklock.Lock(s.Name)
 		if running, err := m.res.StackRunning(s.Name); err == nil && !running {
+			unlock()
 			continue
 		}
 		if err := m.res.StackDown(s.Name); err != nil {
 			errs = append(errs, err)
 		}
+		unlock()
 	}
 	if len(r.NVMe) > 0 {
 		if err := m.applyExports(); err != nil {
@@ -371,7 +377,10 @@ func (m *Manager) materialize(g Group) error {
 	}
 	var errs []error
 	for _, s := range stored.Stacks {
-		if err := m.res.WriteStack(s); err != nil {
+		unlock := stacklock.Lock(s.Name)
+		err := m.res.WriteStack(s)
+		unlock()
+		if err != nil {
 			errs = append(errs, fmt.Errorf("stack %s: %w", s.Name, err))
 		}
 	}
@@ -486,28 +495,30 @@ func (m *Manager) ActivateTick() {
 				if err := storeResources(m.db, g.Name, r); err != nil {
 					problems = append(problems, err.Error())
 				}
+				// The owner's definitions are its own stack files: nothing
+				// to write. A stack busy with a deploy, edit or update is
+				// left to that operation; the next pass looks again.
 				for _, s := range r.Stacks {
-					if err := m.res.WriteStack(s); err != nil {
-						problems = append(problems, fmt.Sprintf("stack %s: %v", s.Name, err))
-						continue
-					}
-					if running, err := m.res.StackRunning(s.Name); err == nil && running {
-						continue
-					}
 					if m.isMoving(g.Name) {
 						break
 					}
-					if err := m.res.StackUp(s.Name); err != nil {
-						problems = append(problems, err.Error())
+					unlock, ok := stacklock.TryLock(s.Name)
+					if !ok {
+						continue
 					}
-					if m.isMoving(g.Name) {
-						// The move stops the group's apps; one started
-						// while it did so is stopped again.
-						if err := m.res.StackDown(s.Name); err != nil {
-							log.Printf("GROUPS: %s: stopping stack %s: %v", g.Name, s.Name, err)
+					if running, err := m.res.StackRunning(s.Name); err != nil || !running {
+						if err := m.res.StackUp(s.Name); err != nil {
+							problems = append(problems, err.Error())
 						}
-						break
+						if m.isMoving(g.Name) {
+							// The move stops the group's apps; one started
+							// while it did so is stopped again.
+							if err := m.res.StackDown(s.Name); err != nil {
+								log.Printf("GROUPS: %s: stopping stack %s: %v", g.Name, s.Name, err)
+							}
+						}
 					}
+					unlock()
 				}
 			}
 		} else if g.IsCandidate(self) {
@@ -516,12 +527,17 @@ func (m *Manager) ActivateTick() {
 			}
 			r, _ := loadResources(m.db, g.Name)
 			for _, s := range r.Stacks {
+				unlock, ok := stacklock.TryLock(s.Name)
+				if !ok {
+					continue // busy: the next pass looks again
+				}
 				if running, err := m.res.StackRunning(s.Name); err == nil && running {
 					log.Printf("GROUPS: stopping stack %s: group %s is owned by another node", s.Name, g.Name)
 					if err := m.res.StackDown(s.Name); err != nil {
 						problems = append(problems, err.Error())
 					}
 				}
+				unlock()
 			}
 		}
 		m.fmu.Lock()

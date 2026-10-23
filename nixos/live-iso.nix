@@ -1,50 +1,56 @@
 # D-PlaneOS Live Boot ISO Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-# Builds a bootable ISO that runs D-PlaneOS directly without installation.
+# Turns the live system (configuration-live.nix, flake output dplaneos-live)
+# into a bootable ISO: flake.nix extends that configuration with this module,
+# so the ISO boots D-PlaneOS itself (daemon, web interface, database).
 #
 # Differs from installer.nix:
-#   - installer.nix: boots installer, runs install.sh, reboots to installed system
-#   - live-iso.nix: boots directly into live D-PlaneOS system
+#   - installer.nix: boots the installer, which installs the D-PlaneOS system
+#     kept in its store and reboots into it
+#   - live-iso.nix: is the D-PlaneOS system, running from the ISO in RAM
 #
-# Both ISOs contain the full D-PlaneOS closure (for offline use).
-# The difference is what runs at boot:
-#   - Installer: TUI wizard for partitioning/installation
-#   - Live boot: D-PlaneOS daemon and UI (no installation required)
+# Until 16.0 this module built a plain NixOS installer CD with the live
+# system only copied into its store: the ISO booted NixOS without D-PlaneOS.
 
-{ config, lib, pkgs, modulesPath, self, targetSystem, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 
 {
   imports = [
-    # Base NixOS minimal ISO
-    "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
+    "${modulesPath}/installer/cd-dvd/iso-image.nix"
   ];
 
-  # ── Pre-bake the D-PlaneOS live closure into the ISO ──────────────────────
-  # This allows the ISO to boot and run D-PlaneOS offline (no internet needed).
-  isoImage.storeContents = [
-    targetSystem  # The live D-PlaneOS system (passed via flake.nix)
-  ];
+  # Drivers for real machines (disk controllers, network cards), as on the
+  # installer ISO.
+  hardware.enableAllHardware = true;
 
-  # Don't include build dependencies (keeps ISO size under 4GB)
-  isoImage.includeSystemBuildDependencies = false;
+  isoImage.makeEfiBootable = true;
+  isoImage.makeUsbBootable = true;
 
-  # ── Kernel and ZFS (match applianceConfig) ───────────────────────────────
-  boot.kernelPackages = pkgs.linuxPackages_6_12;
-  boot.supportedFilesystems = [ "zfs" "vfat" "ext4" ];
-  boot.zfs.package = pkgs.zfs;
-  boot.zfs.forceImportRoot = false;
+  # The root is the ISO's: a tmpfs over the squashfs store. /persist stays a
+  # tmpfs (live-persistence.nix; the state drive is mounted separately).
+  fileSystems = lib.mkImageMediaOverride (config.lib.isoFileSystems // {
+    "/persist" = {
+      device = "tmpfs";
+      fsType = "tmpfs";
+      neededForBoot = true;
+      options = [ "size=2G" "mode=755" ];
+    };
+  });
+  swapDevices = lib.mkImageMediaOverride [ ];
+  boot.initrd.luks.devices = lib.mkImageMediaOverride { };
 
-  # Serial console for headless/IPMI installations
+  # The ISO brings its own boot loader; the live system installs none.
+  boot.loader.systemd-boot.enable = lib.mkForce false;
+
+  # Serial console for headless/IPMI machines
   boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" ];
 
   # ── Disable graphics (headless server appliance) ───────────────────────────
-  # NixOS minimal ISO enables hardware.graphics by default, pulling ~400MB of
-  # Intel-specific packages (intel-media-driver, intel-compute-runtime, etc.)
-  # that are unnecessary for a headless NAS live environment.
-  # Removing them keeps the squashfs under the GitHub Actions disk limit.
+  # Keeps ~400 MB of GPU drivers (intel-media-driver, intel-compute-runtime)
+  # out of the squashfs, within the GitHub Actions disk limit.
   hardware.graphics.enable = lib.mkForce false;
 
-  # ── System packages: tools useful for live environment ──────────────────────
+  # ── System packages: tools useful in the live environment ──────────────────
   environment.systemPackages = [
     # Pool and filesystem management
     pkgs.zfs
@@ -72,15 +78,9 @@
     pkgs.pciutils
     pkgs.dmidecode
     pkgs.ethtool
-
-    # Optional: Install-to-disk tools (future feature)
-    # pkgs.python3
-    # pkgs.disko
-    # pkgs.gum
   ];
 
-  # ── Boot behavior: Auto-login and display welcome message ────────────────
-  # On first TTY, display welcome message instead of login prompt.
+  # ── Console: log in as root and show the welcome text ──────────────────────
   services.getty.autologinUser = lib.mkForce "root";
 
   environment.etc."dplaneos-live/welcome.txt".text = ''
@@ -117,70 +117,27 @@
         Check daemon status: systemctl status dplaned
         Check docker status: systemctl status docker
 
-    📖  DOCUMENTATION
-        See /etc/dplaneos-live/README for more information.
-
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    Type 'help' for common commands, or 'exit' to return to login.
 
   '';
 
-  # ── Login shell initialization ───────────────────────────────────────────────
-  # Display welcome message and status on first login
   programs.bash.loginShellInit = ''
     if [ "$(tty)" = "/dev/tty1" ] && [ -z "$DPLANE_WELCOME_SHOWN" ]; then
       clear
       cat /etc/dplaneos-live/welcome.txt
-
-      echo ""
-      echo "System startup in progress... Services should be ready in ~30 seconds."
-      echo "Press Enter to dismiss this message."
-      read -r
-
       export DPLANE_WELCOME_SHOWN=1
     fi
   '';
 
-  # ── SSH for remote access ────────────────────────────────────────────────────
-  services.openssh = {
-    enable = true;
-    settings = {
-      PermitRootLogin = "yes";
-      PasswordAuthentication = true;
-      PubkeyAuthentication = true;
-      UsePAM = true;
-    };
-    # Allow empty password for live boot (no persistent users)
-    # User can set password interactively if needed
-  };
-
-  # ── Disable unneeded services in ISO environment ────────────────────────────
-  services.rsyslogd.enable = false;  # Excessive disk writes to squashfs
-  services.udisks2.enable = false;  # Not useful in live ISO
-  services.ntp.enable = false;      # Can use systemd-timesyncd instead
-
-  # ── Networking ───────────────────────────────────────────────────────────────
-  # Live ISO should support DHCP out of the box
-  networking.useDHCP = lib.mkForce true;
-  networking.useNetworkd = true;
-
-  # ── Nix configuration ────────────────────────────────────────────────────────
-  # Disable GC in live (tmpfs-based)
-  nix.gc.automatic = false;
-
   # Documentation disabled (appliance)
   documentation.nixos.enable = false;
 
-  # ── Additional live-boot-specific configuration ──────────────────────────────
-
-  # Set a meaningful hostname in live boot
   networking.hostName = lib.mkDefault "dplaneos-live";
 
   # ── System information file ──────────────────────────────────────────────────
   environment.etc."dplaneos-live/info.json".text = builtins.toJSON {
     mode = "live-boot";
-    version = builtins.readFile ../VERSION;
+    version = lib.fileContents ../VERSION;
     kernel = config.boot.kernelPackages.kernel.version;
     zfs = config.boot.zfs.package.version;
   };
