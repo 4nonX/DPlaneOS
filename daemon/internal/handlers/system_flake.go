@@ -168,7 +168,7 @@ func normalizeReleaseTag(v string) (string, error) {
 		v = "v" + v
 	}
 	if !releaseTagRe.MatchString(v) {
-		return "", fmt.Errorf("invalid release %q (e.g. v16.0.0)", v)
+		return "", fmt.Errorf("invalid release %q (e.g. v16.0.1)", v)
 	}
 	return v, nil
 }

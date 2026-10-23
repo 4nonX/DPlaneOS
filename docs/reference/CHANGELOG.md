@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## v16.0.1 (2026-10-23) - "Bedrock"
+
+Replaces v16.0.0, which was withdrawn a few hours after its release: its live ISO did not run D-PlaneOS. Everything in v16.0.0 below is part of this release.
+
+### Fixed
+
+- **The live ISO booted plain NixOS, without D-PlaneOS** (every live ISO since v14.8.0). The ISO was a stock NixOS installer CD that only carried the live system in its store and never started it: no daemon, no web interface, no database, and NetworkManager in place of systemd-networkd. The ISO is now the live system itself. The live-boot test had tested the live configuration in a test VM, never the image. A new test (`checks.live-iso`) boots the ISO from the CD (UEFI) and checks the daemon, the web interface, the admin setup and login, and that no unit failed.
+
+### Tests and CI
+
+- CI now runs the installer, update, configuration restore, Active Directory, UPS and partition-label tests (job "Install, Update and Recovery"). Before, they ran only by hand.
+- The release is drafted only when every test job passes. Before, it did not wait for the hardening, fleet overlay, Git backend and arm64 API jobs.
+
 ## v16.0.0 (2026-10-22) - "Bedrock"
 
 Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.

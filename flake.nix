@@ -226,14 +226,21 @@
         packages.dplaneos-frontend       = frontend;
         packages.default = daemon;
 
-        # Live boot integration test (Tier 2).
-        # Validates that D-PlaneOS boots from live ISO, daemon starts, UI accessible,
-        # ZFS auto-import works, and system is ephemeral. Run with:
+        # Live boot integration test (Tier 2): the live configuration in a test
+        # VM. The daemon starts, the UI answers, ZFS auto-import works, the
+        # system is ephemeral and the persistence drive keeps state. Run with:
         #   nix build .#checks.x86_64-linux.live-boot -L
         checks.live-boot = import ./nixos/tests/live-boot.nix {
           inherit nixpkgs system impermanence;
           daemonPackage = daemon;
           frontendPackage = frontend;
+        };
+
+        # The live ISO image itself boots (UEFI, from the CD) into D-PlaneOS.
+        #   nix build .#checks.x86_64-linux.live-iso -L
+        checks.live-iso = import ./nixos/tests/live-iso.nix {
+          inherit nixpkgs system;
+          isoSystem = self.nixosConfigurations.${if system == "aarch64-linux" then "iso-live-arm" else "iso-live"};
         };
 
         # Updates: the check after the reboot keeps a working update and goes
@@ -573,29 +580,16 @@
         ];
       };
 
-      # Live boot ISO configurations
-      nixosConfigurations.iso-live = let
-        system = "x86_64-linux";
-      in nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = {
-          inherit self;
-          targetSystem = self.nixosConfigurations.dplaneos-live.config.system.build.toplevel;
-        };
+      # Live boot ISO configurations: the live system itself, as an ISO
+      # (nixos/live-iso.nix). checks.live-iso boots the image.
+      nixosConfigurations.iso-live = self.nixosConfigurations.dplaneos-live.extendModules {
         modules = [
           ./nixos/live-iso.nix
           { environment.etc."dplaneos-live/VERSION".text = dplaneosVersion; }
         ];
       };
 
-      nixosConfigurations.iso-live-arm = let
-        system = "aarch64-linux";
-      in nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = {
-          inherit self;
-          targetSystem = self.nixosConfigurations.dplaneos-live-arm.config.system.build.toplevel;
-        };
+      nixosConfigurations.iso-live-arm = self.nixosConfigurations.dplaneos-live-arm.extendModules {
         modules = [
           ./nixos/live-iso.nix
           { environment.etc."dplaneos-live/VERSION".text = dplaneosVersion; }
