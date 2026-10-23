@@ -786,7 +786,7 @@ jobs:
           nix build ".#${{ matrix.iso_target }}" --print-build-logs
           ls -lh result/iso/
 
-      # The image boots into D-PlaneOS (UEFI, from the CD): until 16.0.1 the
+      # The image boots into D-PlaneOS (UEFI, from the CD): until 16.0 the
       # live ISO was a plain NixOS installer CD and nothing booted it.
       - name: Boot the live ISO (VM test)
         if: matrix.system == 'x86_64-linux'

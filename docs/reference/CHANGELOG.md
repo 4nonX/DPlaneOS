@@ -5,20 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## v16.0.1 (2026-10-23) - "Bedrock"
-
-Replaces v16.0.0, which was withdrawn a few hours after its release: its live ISO did not run D-PlaneOS. Everything in v16.0.0 below is part of this release.
-
-### Fixed
-
-- **The live ISO booted plain NixOS, without D-PlaneOS** (every live ISO since v14.8.0). The ISO was a stock NixOS installer CD that only carried the live system in its store and never started it: no daemon, no web interface, no database, and NetworkManager in place of systemd-networkd. The ISO is now the live system itself. The live-boot test had tested the live configuration in a test VM, never the image. A new test (`checks.live-iso`) boots the ISO from the CD (UEFI) and checks the daemon, the web interface, the admin setup and login, and that no unit failed.
-
-### Tests and CI
-
-- CI now runs the installer, update, configuration restore, Active Directory, UPS and partition-label tests (job "Install, Update and Recovery"). Before, they ran only by hand.
-- The release is drafted only when every test job passes. Before, it did not wait for the hardening, fleet overlay, Git backend and arm64 API jobs.
-
-## v16.0.0 (2026-10-22) - "Bedrock"
+## v16.0.0 (2026-10-23) - "Bedrock"
 
 Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.
 
@@ -98,6 +85,7 @@ Update promptly. The versions given are the releases that have the flaw.
 
 ### Fixed: live boot
 
+- **The live ISO booted plain NixOS, without D-PlaneOS** (every live ISO since v14.8.0). The ISO was a stock NixOS installer CD that only carried the live system in its store and never started it: no daemon, no web interface, no database, and NetworkManager in place of systemd-networkd. The ISO is now the live system itself. The live-boot test had tested the live configuration in a test VM, never the image. A new test (`checks.live-iso`) boots the ISO from the CD (UEFI) and checks the daemon, the web interface, the admin setup and login, and that no unit failed.
 - **The persistence drive kept nothing:** with a `dplane-persist` drive attached, the system mounted it and made a link `/var/lib/dplaneos-persist` to it that nothing used. The database, the settings and the network configuration stayed in RAM and were lost at every shutdown. The drive is now mounted at boot, before the firewall, networkd, PostgreSQL and the daemon start. It holds `/var/lib/dplaneos`, `/etc/dplaneos`, `/etc/target` and the daemon's network files. The live-boot VM test reboots twice with the drive and checks that the admin, its login and a VLAN made through the API are still there.
 - The console help and the live-boot guide named the daemon's unit `dplaneos`; it is `dplaned`. The guide's macOS command made an HFS+ drive, which is not used (the drive must be ext4).
 - The live configuration's activation script failed (`ensureEtcDirs`) whenever the root filesystem was kept across a reboot, as in the VM tests: it touched `/etc/exports`, by then a link into the read-only store. Files are now created only when missing.
@@ -178,6 +166,11 @@ Compared with Komodo, Dockge, Portainer and Watchtower, reproduced on Docker Eng
 - **Stack updates with rollback**, **image update detection** (registry digests, no pull), **per-stack auto-update**, **Git stack webhooks** (GitHub, Gitea/Forgejo, GitLab). New API: `POST /api/docker/stacks/update`, `GET /api/docker/stacks/updates`, `POST /api/docker/stacks/updates/check`, `PUT /api/docker/stacks/settings`, `POST /api/git-sync/repos/webhook-secret`, `POST /api/git-sync/repos/webhook/{id}`.
 - 15-minute snapshot tier, recursive snapshot schedules, age-based retention (`retention_days`).
 - `services.dplaneos.memoryMax` (default `1G`) and `OOMPolicy=continue` on `dplaned`.
+
+### Tests and CI
+
+- CI now runs the installer, update, configuration restore, Active Directory, UPS and partition-label tests (job "Install, Update and Recovery"). Before, they ran only by hand.
+- The release is drafted only when every test job passes. Before, it did not wait for the hardening, fleet overlay, Git backend and arm64 API jobs.
 
 ### Documentation
 

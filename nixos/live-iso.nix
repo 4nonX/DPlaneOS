@@ -9,7 +9,7 @@
 #     kept in its store and reboots into it
 #   - live-iso.nix: is the D-PlaneOS system, running from the ISO in RAM
 #
-# Until 16.0.1 this module built a plain NixOS installer CD with the live
+# Until 16.0 this module built a plain NixOS installer CD with the live
 # system only copied into its store: the ISO booted NixOS without D-PlaneOS.
 
 { config, lib, pkgs, modulesPath, ... }:

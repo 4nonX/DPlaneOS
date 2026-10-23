@@ -62,7 +62,7 @@ The update runs these steps:
 The same update through the API:
 
 ```bash
-curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v16.0.1"}'   # empty: latest
+curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v16.0.0"}'   # empty: latest
 curl .../api/system/updates/nixos?check=1
 ```
 
@@ -150,7 +150,7 @@ sudo tee /etc/nixos/flake.nix >/dev/null <<'EOF'
 # Managed by DPlaneOS: this machine is built from the DPlaneOS release
 # below plus its hardware configuration (and local.nix, if present).
 {
-  inputs.dplaneos.url = "github:4nonX/DPlaneOS/v16.0.1";
+  inputs.dplaneos.url = "github:4nonX/DPlaneOS/v16.0.0";
 
   outputs = { dplaneos, ... }: {
     nixosConfigurations.dplaneos = dplaneos.nixosConfigurations.dplaneos.extendModules {

@@ -20,15 +20,7 @@ def extract_notes(version, changelog_path):
         return ""
 
     notes = match.group(1).strip()
-
-    # A release that replaces a withdrawn one ("Replaces v16.0.0, ...") carries
-    # that release's notes too: its users never saw them.
-    replaced = re.match(r'Replaces v?(\d+\.\d+\.\d+)', notes)
-    if replaced:
-        older = re.search(rf'## (v?{re.escape(replaced.group(1))}.*?)\n(.*?)(?=\n## |$)', content, re.DOTALL)
-        if older:
-            notes += f"\n\n## {older.group(1).strip()}\n\n{older.group(2).strip()}"
-
+    
     # Add a footer with installation instructions
     footer = f"\n\n---\n\n### 🚀 Installation\n\n```bash\ncurl -fsSL https://get.dplaneos.io | sudo bash -s -- --version {version}\n```"
     

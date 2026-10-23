@@ -3,7 +3,7 @@
 # The live ISO image boots into D-PlaneOS: the machine starts from the CD
 # (UEFI), runs from the ISO's squashfs, and the daemon, the web interface and
 # the database come up. live-boot.nix tests the live configuration in a test
-# VM; this test boots the image that is released (until 16.0.1 that image
+# VM; this test boots the image that is released (until 16.0 that image
 # was a plain NixOS installer CD, which the configuration test could not see).
 #
 # The image is the released one plus the test driver's backdoor
