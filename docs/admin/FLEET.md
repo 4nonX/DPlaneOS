@@ -19,7 +19,7 @@ The fleet is a **loose overlay**, not a big cluster:
 
 1. On the node that will manage the fleet: System › Fleet, enter a name for
    the fleet, **Make this node the fleet manager**.
-2. On each node to add: Security › API tokens, create a token with **admin**
+2. On each node to add: Security › Security Settings → API Tokens, create a token with **admin**
    scope. It is shown once.
 3. On the manager: **Add node** with a name, the node's address
    (`https://nas-berlin-1.example.lan`) and the token. Labels such as

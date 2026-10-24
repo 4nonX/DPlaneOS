@@ -8,15 +8,16 @@ Quick reference for all HTTP error codes returned by the daemon.
 
 | Code | Meaning | When |
 |------|---------|------|
-| 200 | OK | Request succeeded |
+| 200 | OK | Request succeeded (some handlers report a failed operation as `200` with `"success": false` and `error`) |
 | 400 | Bad Request | Invalid input, validation failed |
 | 401 | Unauthorized | Missing or invalid session |
-| 403 | Forbidden | RBAC permission denied |
+| 403 | Forbidden | RBAC permission denied, token scope, AAL2 required, password change required, a destructive operation without a valid confirmation token |
 | 404 | Not Found | Resource or endpoint does not exist |
 | 405 | Method Not Allowed | Wrong HTTP method (e.g. GET on a POST-only route) |
-| 409 | Conflict | Target already exists |
-| 429 | Too Many Requests | Rate limit exceeded (100 req/min per IP) |
+| 409 | Conflict | Target already exists, a stack is busy with another operation |
+| 429 | Too Many Requests | Rate limit exceeded (100 requests/minute per address), or login throttled after failed attempts |
 | 500 | Internal Server Error | Server-side failure |
+| 503 | Service Unavailable | The session store (database) cannot be reached: the request is refused, never let through |
 
 ---
 
@@ -45,11 +46,11 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error | Cause |
 |-------|-------|
-| `Path must start with /mnt/` | ACL or trash operation on system path |
+| `path not allowed` | Path outside the pools' mountpoints and the other allowed roots (see the Administrator Guide, Allowed Base Paths) |
+| `path must be absolute`, `invalid path` | Relative path, `..`, or control characters |
+| `destination is a symbolic link` | A write would follow a symbolic link |
+| `setuid/setgid modes are not allowed` | chmod with setuid/setgid bits |
 | `Invalid ACL entry format` | Expected `u:user:rwx`, `g:group:rx`, etc. |
-| `User 'X' not found` | ACL user does not exist locally or in LDAP |
-| `Group 'X' not found` | ACL group does not exist locally or in LDAP |
-| `Can only trash files under /mnt/` | Trash operation outside storage pool |
 
 ### Docker
 
@@ -96,15 +97,25 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Unauthorized` | No `X-Session-ID` header | Include a valid session token |
+| `Unauthorized - no valid session` | No `X-Session-ID` header, or the session expired, was revoked or ended after 30 minutes without activity | Log in again |
+| `Invalid credentials` | Login with a wrong user name or password | |
 | `No authenticated user` | Session valid but user context missing | Re-login |
 
 ### 403 Forbidden
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Permission denied: storage:write` | User role lacks this permission | Assign a role with the required permission |
-| `Permission denied: docker:execute` | Attempting container exec without execute permission | Assign `operator` or `admin` role |
+| `Forbidden - insufficient permissions` (with `required`, e.g. `storage:write`) | The user's roles lack this permission | Assign a role with the required permission |
+| `Forbidden - token scope` | An API token's scopes do not include the action | Use a token with the needed scope |
+| `action: "enable_totp"` | The operation needs a session that logged in with TOTP (AAL2) | Enable two-factor authentication and log in again |
+| `Password change required` | The account must change its password first | Change the password |
+
+### 429 Too Many Requests
+
+| Error | Cause |
+|-------|-------|
+| `Rate limit exceeded` | More than 100 requests per minute from one address |
+| `Too many failed attempts. Try again in N seconds.` | Failed logins from this address (2 s after the second failure, up to 30 s) |
 
 **Built-in roles:**
 
@@ -122,9 +133,9 @@ Returned when user input fails the security allowlist before reaching any system
 | Error Pattern | Meaning | Resolution |
 |---------------|---------|------------|
 | `pool status failed` | `zpool status` returned an error | Check if pool is imported: `zpool import` |
-| `Failed to list datasets` | `zfs list` failed | Verify ZFS kernel module: `modprobe zfs` |
 | `Snapshot failed` | `zfs snapshot` failed | Check dataset exists and there is sufficient space |
-| `pool 'X' is degraded` | Disk failure detected | Replace failed disk, then `zpool replace` |
+
+Most ZFS errors carry the command's own message (`error`) unchanged.
 
 ---
 
@@ -132,17 +143,15 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error Pattern | Meaning | Resolution |
 |---------------|---------|------------|
-| `ufw failed` | Firewall command error | Check `ufw status`; ensure ufw is installed |
-| `nginx config test failed` | Bad SSL cert configuration | Check certificate paths; run `nginx -t` manually |
-| `hdparm failed` | Disk power management error | Verify device supports APM |
-| `lsblk failed` | Block device listing error | Check `/dev/` permissions |
-| `getfacl/setfacl failed` | ACL operation error | Ensure `acl` mount option is set on the filesystem |
+| `nginx config test failed` | Bad TLS certificate configuration (installs outside NixOS) | Check certificate paths; run `nginx -t` |
+| `lsblk failed` | Block device listing error | Check the daemon log |
+| `Session check unavailable (database)`, `Service temporarily unavailable (session store)` (503) | PostgreSQL does not answer | `systemctl status postgresql` |
 
 ---
 
 ## Daemon Logs
 
-All errors are logged to `journalctl -u dplaned` and `/var/log/dplaneos/audit.log`.
+All errors are logged to `journalctl -u dplaned`; changes and security events are also in the audit log (Security › Audit Log).
 
 ### Log Format
 
@@ -150,20 +159,9 @@ All errors are logged to `journalctl -u dplaned` and `/var/log/dplaneos/audit.lo
 2026-03-09 08:30:00 127.0.0.1:45678 POST /api/zfs/encryption/lock 324µs
 ```
 
-### Security Events
-
-```
-SECURITY: Invalid session token from admin@192.168.1.50
-SECURITY: RBAC denied storage:write for user jdoe
-```
-
 ### ZFS Events (via ZED hook)
 
-```
-[critical] Pool=tank Event=statechange State=FAULTED Device=/dev/sdb
-[warning]  Pool=tank Event=io_failure State=DEGRADED Device=/dev/sdc
-[info]     Pool=tank Event=scrub_finish State=ONLINE
-```
+ZED events are logged by the daemon and sent as alerts (`zfs.<severity>.<subclass>`, see [ALERTS.md](../admin/ALERTS.md)); without the daemon the hook logs them to syslog (`journalctl -t dplaneos-zed`).
 
 ---
 
@@ -177,7 +175,7 @@ systemctl status dplaned
 journalctl -u dplaned -f
 
 # Health check (no auth required)
-curl http://localhost/health
+curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
 
 # DB integrity
 sudo -u postgres psql dplaneos -c "\dt"

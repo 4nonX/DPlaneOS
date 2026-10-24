@@ -103,4 +103,4 @@ Disk reservations are an optional layer for shared SAS disks. If the probe on th
 
 ---
 
-**Collect information for a bug report:** System › Support Bundle (includes the daemon log), plus the output of `corosync-quorumtool -s` on each node and a screenshot of the HA page.
+**Collect information for a bug report:** System › Support → Support Bundle (includes the daemon log), plus the output of `corosync-quorumtool -s` on each node and a screenshot of the HA page.

@@ -29,15 +29,13 @@ import (
 
 // SyncKinds are exchanged between nodes.
 //
-// Not exchanged (yet):
+// Not exchanged here:
 //   - node scope: hostname and network interfaces (KindSystem), SMART tasks,
 //     stacks without pool volumes: they belong to one node;
-//   - stacks with pool volumes and NVMe-oF exports: they belong to their
-//     pool, but must run only on the node that owns the pool; synchronising
-//     them needs pool ownership (phase 3), otherwise a replicated standby
-//     would start them against its replica;
-//   - LDAP, ACME, certificates: their secrets are only fingerprinted in the
-//     history (group secrets keys, phase 3); pools come only from state.yaml.
+//   - stacks with pool volumes and NVMe-oF exports: they go with their
+//     pool's storage group (internal/groups), which runs them only on the
+//     group's owner;
+//   - pools: they come only from state.yaml.
 var SyncKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true,
 	KindUser: true, KindGroup: true, KindReplication: true,

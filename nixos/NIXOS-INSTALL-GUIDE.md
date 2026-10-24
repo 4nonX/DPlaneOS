@@ -1,369 +1,167 @@
-# DPlaneOS on NixOS : Complete Installation Guide
+# DPlaneOS: Installation Guide for NixOS Beginners
 
-> **Audience**: You've never used NixOS before. You want a NAS.
-> This guide takes you from "empty server" to "DPlaneOS running" : step by step, no prior knowledge required.
+> **Audience**: you have never used NixOS. You want a NAS.
+> This guide takes you from an empty server to a running DPlaneOS, step by step. You do not need to know NixOS for it: the installer ISO installs the complete system. The last part explains the few NixOS ideas you will meet afterwards.
 >
-> **Simpler alternative**: If you just want to boot and install without any NixOS knowledge, use the [DPlaneOS installer ISO](https://github.com/4nonX/DPlaneOS/releases/latest) instead. Flash it, boot it, and follow the on-screen prompts. The ISO also handles witness node installation for replicated-topology HA clusters (Path B); shared-SAS clusters do not need a separate witness node.
->
-> **ARM64 / Raspberry Pi users**: Download the `...-arm64.iso` from the releases page. This guide applies to both architectures.
+> The short version for experienced users: [Installation Guide](../docs/admin/INSTALLATION-GUIDE.md).
 
 ---
 
-## What is NixOS (30-Second Version)
+## What is NixOS (30-second version)
 
-NixOS is a Linux distribution where the **entire system is defined in a single text file**: `configuration.nix`. You describe everything: packages, services, firewall rules. Then you run `sudo nixos-rebuild switch` and NixOS builds the system exactly as described.
+NixOS is a Linux distribution where the **whole system is built from a description**. DPlaneOS ships that description (the release); your machine adds its hardware configuration. Every build is kept as a **generation**: if an update goes wrong, the previous generation is still there, in the boot menu and one command away.
 
-**Why is this great for a NAS?**
-- Broken update? → `sudo nixos-rebuild switch --rollback` : one command and everything is restored
-- Server dies? → Install NixOS on new hardware, copy `configuration.nix`, import ZFS pool : done
-- Your entire NAS config is version-controllable (Git)
+**Why this is good for a NAS:**
+- A broken update rolls back by itself (the system checks itself after the update's reboot).
+- A failed system disk: reinstall, import the ZFS pool, restore the daily configuration backup from the pool.
+- The configuration can live in Git, if you want (see [Git-Driven NAS](../docs/admin/GITOPS-DRIVEN-NAS.md)).
 
 ---
 
 ## Requirements
 
-- A PC/server for the NAS (minimum 4 GB RAM, recommended 8+)
-- A USB stick (minimum 2 GB) for the NixOS installer
-- A **separate boot disk** (SSD/HDD/NVMe) : NixOS goes here
-- Your data disks (used for the ZFS pool : **not** for NixOS)
-- A second computer to follow this guide
-- Ethernet cable (WiFi works too but is harder during install)
+- A PC or server for the NAS: 64-bit (x86_64, or aarch64 with UEFI firmware), 4 GB RAM minimum, 8 GB or more recommended
+- **UEFI** firmware (legacy BIOS / CSM is not supported)
+- A **system disk** of 32 GB or more (SSD or NVMe recommended): DPlaneOS goes here, and it is erased
+- Your data disks (for the ZFS pool: the installer does not touch them)
+- A USB stick of 4 GB or more
+- A second computer, and an Ethernet cable (the installer needs no internet, but you reach the web interface over the network)
 
 ---
 
-## License
+## Part 1: Install (about 15 minutes)
 
-DPlaneOS is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
-You can use, modify, and distribute it freely. If you run a modified version
-as a network service, you must make your modified source available to users
-of that service. AGPLv3 is OSI-approved : NixOS treats it as free software
-and no special configuration is required.
+### Step 1.1: Download the ISO
 
----
+From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), download `dplaneos-v<version>-installer-amd64.iso` (Intel/AMD) or `dplaneos-v<version>-installer-arm64.iso` (ARM), and its `.sha256` file. Check it:
 
-## Part 1: Installing NixOS (~20 minutes)
+```bash
+sha256sum -c dplaneos-v*-installer-amd64.iso.sha256
+```
 
-### Step 1.1 : Download ISO
+### Step 1.2: Write it to the USB stick
 
-Go to **https://nixos.org/download** and download the **Minimal ISO image** (64-bit). Not the Graphical ISO : we don't need a desktop.
-
-### Step 1.2 : Create USB Stick
-
-**Windows:** Use [Rufus](https://rufus.ie/) or [balenaEtcher](https://etcher.balena.io/)
+**Windows:** [Rufus](https://rufus.ie/) (DD image mode) or [balenaEtcher](https://etcher.balena.io/).
 **Mac/Linux:**
 ```bash
-# Find your USB stick (CAREFUL: pick the right device!)
-lsblk
-
-# Write the ISO (replace /dev/sdX with your USB stick)
-sudo dd if=nixos-minimal-*.iso of=/dev/sdX bs=4M status=progress
+lsblk                          # find the USB stick (CAREFUL: pick the right device!)
+sudo dd if=dplaneos-v*-installer-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-### Step 1.3 : Boot from USB
+### Step 1.3: Boot from the USB stick
 
-1. Plug USB stick into the NAS server
-2. Start the server, enter BIOS (usually F2, F12, or DEL during boot)
-3. Boot order: set USB stick first
-4. Save and reboot
+1. Plug the USB stick into the server.
+2. Start it and enter the firmware setup (usually F2, F12 or DEL). Make sure **UEFI** boot is on and CSM / legacy boot is off.
+3. Boot from the USB stick.
 
-You'll land on a command line: `[nixos@nixos:~]$` : this is the NixOS live installer.
+The installer starts by itself, on the screen and on the serial console. A headless server: SSH to the installer as `root` with the password `dplaneos` (this password exists only on the installer).
 
-### Step 1.4 : Check Internet
+### Step 1.4: Install
 
-```bash
-ping -c 3 google.com
-```
-
-If it works → continue. If not:
-
-```bash
-# WiFi (if needed):
-sudo systemctl start wpa_supplicant
-wpa_cli
-> add_network
-> set_network 0 ssid "YourWiFiName"
-> set_network 0 psk "YourWiFiPassword"
-> enable_network 0
-> quit
-```
-
-### Step 1.5 : Partition the Boot Disk
-
-**WARNING: This erases EVERYTHING on the selected disk. Make sure you pick the right one : NOT your data disks!**
-
-```bash
-# Show all disks
-lsblk
-
-# Example: /dev/sda is your boot SSD (120GB)
-#          /dev/sdb, /dev/sdc, /dev/sdd are data disks → DON'T TOUCH
-```
-
-**For UEFI systems** (most modern servers/PCs since ~2012):
-
-```bash
-# Partition
-sudo parted /dev/sda -- mklabel gpt
-sudo parted /dev/sda -- mkpart ESP fat32 1MB 512MB
-sudo parted /dev/sda -- set 1 esp on
-sudo parted /dev/sda -- mkpart primary 512MB 100%
-
-# Format
-sudo mkfs.fat -F 32 -n BOOT /dev/sda1
-sudo mkfs.ext4 -L nixos /dev/sda2
-
-# Mount
-sudo mount /dev/disk/by-label/nixos /mnt
-sudo mkdir -p /mnt/boot
-sudo mount /dev/disk/by-label/BOOT /mnt/boot
-```
-
-**For older BIOS/MBR systems:**
-
-```bash
-sudo parted /dev/sda -- mklabel msdos
-sudo parted /dev/sda -- mkpart primary 1MB 100%
-
-sudo mkfs.ext4 -L nixos /dev/sda1
-
-sudo mount /dev/disk/by-label/nixos /mnt
-```
-
-### Step 1.6 : Generate Base Config
-
-```bash
-sudo nixos-generate-config --root /mnt
-```
-
-This creates two files:
-- `/mnt/etc/nixos/hardware-configuration.nix` : auto-detected hardware (NEVER edit manually)
-- `/mnt/etc/nixos/configuration.nix` : we'll replace this with DPlaneOS config
-
-### Step 1.7 : Copy DPlaneOS Config
-
-Replace the generated `configuration.nix` with ours:
-
-**Option A: Clone the repo:**
-```bash
-nix-shell -p git --run "git clone https://github.com/4nonX/DPlaneOS /tmp/dplaneos"
-sudo cp /tmp/dplaneos/nixos/configuration-standalone.nix /mnt/etc/nixos/configuration.nix
-sudo cp /tmp/dplaneos/nixos/setup-nixos.sh /mnt/root/setup-nixos.sh
-```
-
-**Option B: From a second USB stick:**
-```bash
-lsblk
-sudo mount /dev/sdX1 /media
-sudo cp /media/configuration-standalone.nix /mnt/etc/nixos/configuration.nix
-sudo cp /media/setup-nixos.sh /mnt/root/setup-nixos.sh
-sudo umount /media
-```
-
-### Step 1.8 : Install
-
-```bash
-sudo nixos-install
-```
-
-This takes 5-15 minutes (depending on internet speed). At the end you'll be asked for a **root password** : choose a secure one.
-
-```bash
-# Done! Reboot.
-sudo reboot
-```
-
-**Remove the USB stick!** The server now boots from the boot disk into your new NixOS.
+1. Choose **Install DPlaneOS**.
+2. Choose the **system disk**. Only disks of 32 GB or more are offered, never the USB stick. Everything on the chosen disk is erased; data disks are not touched.
+3. Set the password of the `admin` user (8 characters or more, with upper and lower case, a digit and a symbol).
+4. Confirm. The installer partitions the disk and installs the system from the ISO, without internet.
+5. When it is done, it shows the address of the web interface. Remove the USB stick and press Enter to reboot.
 
 ---
 
-## Part 2: Setting Up DPlaneOS (~5 minutes)
+## Part 2: First steps in the web interface
 
-### Step 2.1 : Log In
+### Step 2.1: Open the web interface
 
-After reboot you'll see a login prompt:
+On your other computer, open the address the installer showed (for example `http://192.168.1.42`), or try `http://dplaneos.local`. If you do not know the address, look in your router's DHCP leases.
 
-```
-User: root
-Password: (what you chose during nixos-install)
-```
+Log in as `admin` with the password from the installer. The setup wizard opens:
 
-### Step 2.2 : Run Setup Script
+1. **Admin account**: log in again with the same password.
+2. **Disks** and **pool**: select data disks and create a pool (or skip it and do it later under Storage › ZFS Pools).
+3. **System**: hostname and time zone.
 
-```bash
-bash /root/setup-nixos.sh
-```
+### Step 2.2: An existing ZFS pool
 
-The script automatically:
-- Generates and applies a unique ZFS host ID
-- Confirms or changes the timezone
-- Checks the ZFS pool name
-- Detects UEFI/BIOS boot loader
+A pool from another system (TrueNAS, another Linux): Storage › ZFS Pools › Import. A pool that was not exported on the old system needs "force" (it was last used by another host).
 
-### Step 2.3 : Build the System
+### Step 2.3: SSH access (optional)
+
+The installed system allows SSH with keys only (no password login, no root login). Add your public key for a user under Identity › SSH Keys, then:
 
 ```bash
-sudo nixos-rebuild switch
+ssh <user>@<server-ip>
 ```
-
-**First build will fail** due to missing package hashes. This is expected!
-
-1. The error shows the correct hash: `got: sha256-AbCdEf...=`
-2. Edit the config: `sudo nano /etc/nixos/configuration.nix`
-3. Search for `AAAA` (Ctrl+W), replace with the correct hash
-4. Rebuild: `sudo nixos-rebuild switch`
-5. Repeat if a second hash error appears (vendorHash)
-
-After max 3 attempts, everything builds.
-
-### Step 2.4 : Find Your IP
-
-```bash
-ip addr show | grep "inet "
-# Look for the address that is NOT 127.0.0.1
-# Example: 192.168.1.42
-```
-
-### Step 2.5 : Import ZFS Pool
-
-**If you have an existing ZFS pool** (e.g. from TrueNAS/Debian migration):
-```bash
-zpool import
-zpool import tank    # replace "tank" with your pool name
-zpool status
-```
-
-**If you need to create a new pool:**
-```bash
-lsblk
-
-# Mirror (2 disks, recommended)
-zpool create tank mirror /dev/sdb /dev/sdc
-
-# OR: RAIDZ1 (3+ disks, one can fail)
-zpool create tank raidz1 /dev/sdb /dev/sdc /dev/sdd
-
-# Docker dataset
-zfs create tank/docker
-```
-
-### Step 2.6 : Open Browser
-
-On your regular PC:
-
-```
-http://192.168.1.42
-```
-(Replace with the IP from step 2.4)
-
-Or try:
-```
-http://dplaneos.local
-```
-
-**You should see the DPlaneOS Setup Wizard!**
 
 ---
 
-## Part 3: Daily Operations : The 5 Commands You Need
+## Part 3: The NixOS ideas you will meet
 
-### Change something
+### Updates
+
+System › System Updates: check, update. The system builds the next release, reboots into it and checks itself; if the check fails, it goes back to the previous generation. See [Updates](../docs/admin/OTA-UPDATES.md).
+
+### Something broke after an update?
+
 ```bash
-sudo nano /etc/nixos/configuration.nix
-sudo nixos-rebuild switch
+sudo nixos-rebuild switch --rollback    # the previous generation
 ```
 
-### Something broke?
+If the system does not boot, choose an older generation in the boot menu.
+
+### Settings of your own
+
+The system is built from `/etc/nixos/flake.nix`, which DPlaneOS writes. Your own NixOS settings go in `/etc/nixos/local.nix`; see [NIXOS-README.md](NIXOS-README.md#your-own-nixos-settings). Most settings (network, shares, users, firewall rules) are made in the web interface and need no NixOS at all.
+
+### Installing a program
+
+There is no `apt install`. For a quick tool:
+
 ```bash
-sudo nixos-rebuild switch --rollback
+nix-shell -p htop      # available in this shell only
 ```
 
-### Update the system
-```bash
-sudo nix-channel --update
-sudo nixos-rebuild switch
-```
+To keep it, add it to `/etc/nixos/local.nix` (`environment.systemPackages = [ pkgs.htop ];`) and rebuild:
 
-### Reboot
 ```bash
-sudo reboot
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 ### Check status
+
 ```bash
-systemctl status dplaned    # DPlaneOS daemon
+systemctl status dplaned     # DPlaneOS daemon
 zpool status                 # ZFS pools
-docker ps                    # Docker containers
+docker ps                    # containers
+sudo dplaneos-recovery       # recovery menu (passwords, 2FA, services, pools)
 ```
 
 ---
 
 ## Troubleshooting
 
-### "error: flake does not provide attribute 'nixosConfigurations.nixos'"
+### The installer says the machine started in legacy BIOS mode
 
-You ran `sudo nixos-rebuild switch --flake .` without the `#dplaneos` suffix.
-NixOS defaults to matching the flake attribute name to your hostname (which is
-`nixos` on a fresh VM), but the flake defines the configuration as `dplaneos`.
+Enable UEFI in the firmware setup (disable CSM / legacy boot) and boot the USB stick again.
 
-Always include the attribute name explicitly:
+### No disk is offered
 
-```bash
-sudo nixos-rebuild switch --flake .#dplaneos
-```
+The system disk must have 32 GB or more. Check the cables and the firmware's SATA/NVMe settings, then choose **Shell** and run `lsblk`.
 
-### "hash mismatch" during nixos-rebuild
-
-The sha256 hashes in the config need to be filled in. See Step 2.3.
-
-### ZFS pool not imported at boot
+### The web interface does not answer
 
 ```bash
-sudo zpool import -f tank
-# Check that hostId in configuration.nix matches your machine
+journalctl -u dplaned -n 50    # daemon log
+journalctl -u nginx -n 50      # web server log
 ```
 
-### DPlaneOS shows blank page
-
-```bash
-journalctl -u dplaned -f    # Daemon logs
-journalctl -u nginx -f      # Web server logs
-```
-
-### SSH not working
-
-The config enables password login by default. If you disabled it:
-```bash
-# On the server directly:
-sudo nano /etc/nixos/configuration.nix
-# Change: PasswordAuthentication = false;
-# To:     PasswordAuthentication = true;
-sudo nixos-rebuild switch
-```
-
-### Installing packages
-
-**Not** `apt install` - that doesn't exist on NixOS. Instead:
-
-```bash
-# Temporary (current session only):
-nix-shell -p vim
-
-# Permanent (survives reboots):
-sudo nano /etc/nixos/configuration.nix
-# Add to environment.systemPackages: vim
-sudo nixos-rebuild switch
-```
+More: [Troubleshooting](../docs/admin/TROUBLESHOOTING.md), [Recovery](../docs/admin/RECOVERY.md).
 
 ---
 
-## Cheat Sheet: NixOS vs. Debian
+## Cheat sheet: NixOS vs. Debian
 
-| I want to... | Debian | NixOS |
+| I want to... | Debian | DPlaneOS (NixOS) |
 |--------------|--------|-------|
-| Install a package | `apt install vim` | Add to `configuration.nix` + `nixos-rebuild switch` |
-| Start a service | `systemctl enable nginx` | `services.nginx.enable = true;` + rebuild |
-| Edit config | `nano /etc/nginx/nginx.conf` | `nano /etc/nixos/configuration.nix` + rebuild |
-| Update | `apt update && apt upgrade` | `nix-channel --update && nixos-rebuild switch` |
-| Rollback | manually fix things | `nixos-rebuild switch --rollback` |
-| What packages do I have? | `dpkg -l` | It's all in `configuration.nix` |
-| Open firewall port | `ufw allow 8080` | `networking.firewall.allowedTCPPorts = [ 8080 ];` + rebuild |
+| Install a package | `apt install vim` | `local.nix` + rebuild (or `nix-shell -p vim` for now) |
+| Update | `apt update && apt upgrade` | System › System Updates |
+| Roll back | fix things by hand | automatic after a failed update; `nixos-rebuild switch --rollback` |
+| Open a firewall port | `ufw allow 8080` | Security › Firewall |
+| Change the network | edit `/etc/network/interfaces` | Network page (reverts unless confirmed) |

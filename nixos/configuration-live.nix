@@ -15,7 +15,7 @@
 #   2. impermanence overlays /var, /etc with tmpfs
 #   3. dplane-zfs-auto-import scans and imports any pools
 #   4. D-PlaneOS daemon starts and serves the UI via nginx on port 80
-#   5. User can manage pools, run Docker, optionally install to disk
+#   5. User can manage pools and run Docker; installing needs the installer ISO
 
 { config, lib, pkgs, ... }:
 
@@ -110,7 +110,7 @@
     ──────────────────────────────────────────────────────────────────────
 
     Web UI:              http://<ip-address>/
-    SSH:                 root@<ip-address>
+    SSH:                 root@<ip-address> (set a password first: passwd)
 
     ZFS pools will be automatically imported from attached drives.
 

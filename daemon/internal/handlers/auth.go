@@ -313,7 +313,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		pendingCreated := time.Now().Unix()
 		_, err = h.db.Exec(
 			`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, 'pending_totp')`,
-			sessionID, userID, req.Username, pendingCreated, pendingExpiry,
+			security.SessionKey(sessionID), userID, req.Username, pendingCreated, pendingExpiry,
 		)
 		if err != nil {
 			log.Printf("AUTH ERROR: failed to create pending session: %v", err)
@@ -342,7 +342,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	createdAt := time.Now().Unix()
 	_, err = h.db.Exec(
 		`INSERT INTO sessions (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		sessionID, userID, req.Username, ip, userAgent, createdAt, expiresAt, sessionStatus,
+		security.SessionKey(sessionID), userID, req.Username, ip, userAgent, createdAt, expiresAt, sessionStatus,
 	)
 	if err != nil {
 		log.Printf("AUTH ERROR: failed to create session: %v", err)
@@ -377,7 +377,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-User")
 
 	if sessionID != "" {
-		if _, err := h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, sessionID); err != nil {
+		if _, err := h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, security.SessionKey(sessionID)); err != nil {
 			log.Printf("AUTH: failed to delete session: %v", err)
 		}
 		clientIP := security.RealIP(r)
@@ -407,7 +407,7 @@ func (h *AuthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(
 		`SELECT username, COALESCE(expires_at, 0) FROM sessions 
 		 WHERE session_id = $1 AND (expires_at IS NULL OR expires_at > $2)`,
-		sessionID, time.Now().Unix(),
+		security.SessionKey(sessionID), time.Now().Unix(),
 	).Scan(&username, &expiresAt)
 
 	if err != nil {
@@ -444,7 +444,7 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		`SELECT u.id, u.username, COALESCE(u.email,''), COALESCE(u.role,'user'), COALESCE(u.must_change_password,0), COALESCE(u.source,'local')
 		 FROM sessions s JOIN users u ON s.username = u.username
 		 WHERE s.session_id = $1 AND (s.expires_at IS NULL OR s.expires_at > $2) AND u.active = 1`,
-		sessionID, time.Now().Unix(),
+		security.SessionKey(sessionID), time.Now().Unix(),
 	).Scan(&userID, &username, &email, &role, &mustChange, &source)
 
 	if err != nil {
@@ -492,7 +492,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	var username string
 	err := h.db.QueryRow(
 		`SELECT username FROM sessions WHERE session_id = $1 AND (expires_at IS NULL OR expires_at > $2)`,
-		sessionID, time.Now().Unix(),
+		security.SessionKey(sessionID), time.Now().Unix(),
 	).Scan(&username)
 	if err != nil {
 		respondJSON(w, http.StatusUnauthorized, map[string]any{
@@ -583,7 +583,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Revoke all other sessions - the current session remains active
-	if _, err := h.db.Exec(`DELETE FROM sessions WHERE username = $1 AND session_id != $2`, username, sessionID); err != nil {
+	if _, err := h.db.Exec(`DELETE FROM sessions WHERE username = $1 AND session_id != $2`, username, security.SessionKey(sessionID)); err != nil {
 		log.Printf("AUTH: failed to revoke other sessions for %s: %v", username, err)
 	}
 
@@ -621,7 +621,7 @@ func (h *AuthHandler) CSRFToken(w http.ResponseWriter, r *http.Request) {
 	token := hex.EncodeToString(tokenBytes)
 
 	// Persist to session in DB
-	_, err := h.db.Exec(`UPDATE sessions SET csrf_token = $1 WHERE session_id = $2`, token, sessionID)
+	_, err := h.db.Exec(`UPDATE sessions SET csrf_token = $1 WHERE session_id = $2`, token, security.SessionKey(sessionID))
 	if err != nil {
 		log.Printf("AUTH ERROR: failed to save CSRF token: %v", err)
 		respondJSON(w, http.StatusInternalServerError, map[string]any{
@@ -810,18 +810,13 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The ids are the stored keys (SHA-256 of the tokens): they identify a
+	// session for Revoke but cannot be used to log in.
 	currentSession := ""
-	authHeader := r.Header.Get("Authorization")
-	if v, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
-		currentSession = v
-	} else {
-		cookie, err := r.Cookie("session_id")
-		if err == nil {
-			currentSession = cookie.Value
-		}
+	if t := r.Header.Get("X-Session-ID"); t != "" {
+		currentSession = security.SessionKey(t)
 	}
 
-	// Mask session IDs except for the current one (security best practice - Finding 25)
 	type SessionEntry struct {
 		ID           string `json:"id"`
 		IPAddress    string `json:"ip_address"`
@@ -832,21 +827,13 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	var entries []SessionEntry
 	for _, s := range sessions {
-		isCurrent := s.SessionID == currentSession
-		displayID := "REDACTED"
-		if isCurrent {
-			displayID = s.SessionID
-		} else if len(s.SessionID) > 8 {
-			displayID = s.SessionID[:8] + "..."
-		}
-
 		entries = append(entries, SessionEntry{
-			ID:           displayID,
+			ID:           s.SessionID,
 			IPAddress:    s.IPAddress,
 			UserAgent:    s.UserAgent,
 			CreatedAt:    s.CreatedAt,
 			LastActivity: s.LastActivity,
-			IsCurrent:    isCurrent,
+			IsCurrent:    s.SessionID == currentSession,
 		})
 	}
 
@@ -899,7 +886,11 @@ func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.auditLog(user.Username, "session_revoked", fmt.Sprintf("Revoked session %s", req.ID[:8]), r.RemoteAddr)
+	short := req.ID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	h.auditLog(user.Username, "session_revoked", "Revoked session "+short, r.RemoteAddr)
 	respondJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -1062,7 +1053,7 @@ func (h *AuthHandler) SCRAMVerify(w http.ResponseWriter, r *http.Request) {
 		if _, err := h.db.Exec(
 			`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status)
 			 VALUES ($1, $2, $3, $4, $5, 'pending_totp')`,
-			sessionID, userID, ch.Username, createdAt, pendingExpiry,
+			security.SessionKey(sessionID), userID, ch.Username, createdAt, pendingExpiry,
 		); err != nil {
 			respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Internal error"})
 			return
@@ -1086,7 +1077,7 @@ func (h *AuthHandler) SCRAMVerify(w http.ResponseWriter, r *http.Request) {
 	_, err = h.db.Exec(
 		`INSERT INTO sessions (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		sessionID, userID, ch.Username, clientIP, r.Header.Get("User-Agent"), createdAt, expiresAt, scramSessionStatus,
+		security.SessionKey(sessionID), userID, ch.Username, clientIP, r.Header.Get("User-Agent"), createdAt, expiresAt, scramSessionStatus,
 	)
 	if err != nil {
 		respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Internal error"})

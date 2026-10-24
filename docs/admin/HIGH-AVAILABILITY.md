@@ -155,7 +155,7 @@ The losing change is not dropped: the node that made it keeps it as a **proposal
 **System › Cluster Map** shows the whole setup as the node you are on sees it: every node and vote (in the cluster, reachable, coordinator, maintenance, changes it has not taken yet), and for each storage group its owner, the standbys in takeover order, the epoch, replication lag and whether it is served.
 
 
-`GET /api/metrics` on each node exports, among others:
+`GET /metrics` on each node (Prometheus format, no login) exports, among others:
 
 | Metric | Meaning |
 |---|---|

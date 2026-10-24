@@ -53,13 +53,13 @@ Reasonable question. The short answer: most of DPlaneOS isn't DPlaneOS.
 
 **The system stack is well-trodden upstream software.** PostgreSQL for state, nginx for the edge, Corosync for cluster quorum (as in Proxmox VE), Samba for SMB, the kernel for NFS and LIO/iSCSI, Docker for containers, NUT for UPS, rclone for cloud sync, ZED for ZFS event delivery. Each of these has more engineering hours behind it than I will produce in my career.
 
-**The Go dependency tree is deliberately small.** Nine direct dependencies: `gorilla/mux`, `gorilla/websocket`, `pgx`, `go-ldap`, `lego` (ACME), `creack/pty`, `google/uuid`, `golang.org/x/crypto`, `go-jose/v4` (OIDC JWS verification). All vendored. The daemon is not a wrapper around a large framework; it's standard library plus narrow, well-understood plumbing.
+**The Go dependency tree is deliberately small.** Eleven direct dependencies: `gorilla/mux`, `gorilla/websocket`, `pgx`, `goose` (schema migrations), `go-ldap`, `lego` (ACME), `creack/pty`, `google/uuid`, `golang.org/x/crypto`, `golang.org/x/sys`, `go-jose/v4` (OIDC JWS verification). All vendored. The daemon is not a wrapper around a large framework; it's standard library plus narrow, well-understood plumbing.
 
 So what's actually new code?
 
-**The seams.** ~49k lines of Go that tie the above together coherently: ~540 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, storage groups that move between nodes with quorum, epochs and layered fencing (watchdog, multihost, SCSI-3 PR, power), and configuration that merges between nodes per resource. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
+**The seams.** ~94k lines of Go that tie the above together coherently: ~550 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, updates through NixOS generations with a health check and automatic rollback, storage groups that move between nodes with quorum, epochs and layered fencing (watchdog, multihost, SCSI-3 PR, power), and configuration that merges between nodes per resource. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
 
-**The interface.** ~30k lines of React 19 / TypeScript: over 50 pages, around 67 modal/dialog components, one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
+**The interface.** ~43k lines of React 19 / TypeScript: 55 pages and one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
 
 **The GitOps layer.** A declarative `state.yaml` schema and a bi-directional reconciler that lets you treat a Git repo as the source of truth for the *shape* of your storage: pools, dataset hierarchy and properties (quota, compression, atime, recordsize, encryption, mountpoint), shares, NFS exports, container stacks, users, replication relationships. You can apply changes from Git to the live system, or capture the live state back into Git. What it does *not* manage is the data plane itself: dataset contents, snapshots, and `zfs send` streams stay on ZFS's terms and are backed up out of band. The reconciler is also conservative in the places that matter: pool destruction is always BLOCKED, a dataset is only destroyed when it is provably empty (no files, no snapshots, no children; a volume never), approval or not, and there's an `ignore_extraneous` flag for partial declarations. A `git push` cannot wipe data; only metadata and configuration. This is the part I'm proudest of and also the part most likely to have rough edges at the property-coverage frontier.
 
@@ -86,12 +86,12 @@ Full license inventory and attribution in [NOTICE.md](NOTICE.md).
 ## Getting Started
 
 **Install to disk** (permanent):
-- Download the [latest installer ISO](https://github.com/4nonX/D-PlaneOS/releases)
+- Download the [latest installer ISO](https://github.com/4nonX/DPlaneOS/releases)
 - Follow the [Installation Guide](docs/admin/INSTALLATION-GUIDE.md)
 - Full disk installation with OTA updates
 
 **Try live boot** (no installation needed):
-- Download the [latest live ISO](https://github.com/4nonX/D-PlaneOS/releases) (same releases, look for `-live` in filename)
+- Download the [latest live ISO](https://github.com/4nonX/DPlaneOS/releases) (same releases, look for `-live` in filename)
 - Flash to USB and boot
 - Full D-PlaneOS in RAM, ephemeral state, auto-import existing ZFS pools
 - See [Live Boot Quick Start](docs/admin/LIVE-BOOT-QUICKSTART.md)
@@ -126,36 +126,40 @@ Boot the installer ISO. It handles everything.
 dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-1. Boot the target machine from USB.
-2. The installer launches automatically. Enter disk, hostname, SSH key.
-3. DPlaneOS installs and starts within minutes.
-4. Open `http://<your-server-ip>/`. Change the admin password on first login.
+1. Boot the target machine from USB, in UEFI mode (legacy BIOS is not supported).
+2. The installer starts on the screen and on the serial console. Choose the disk for the system (32 GB or more; it is erased) and set the password of the `admin` user. Headless machines: SSH to the installer as `root`, password `dplaneos`.
+3. The installation takes a few minutes and needs no network. Remove the USB drive and reboot.
+4. Open `http://<your-server-ip>/` and log in as `admin` with that password.
 
-**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest). Grab `dplaneos-v*-installer-amd64.iso` (x86_64) or `...-arm64.iso` (aarch64, including Raspberry Pi 5). The combined installer handles NAS installation and, for replicated-topology HA clusters, witness-node installation via a boot menu. Shared-SAS clusters need only the two data-node ISOs.
+**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest). Grab `dplaneos-v*-installer-amd64.iso` (x86_64) or `dplaneos-v*-installer-arm64.iso` (aarch64 with UEFI firmware). The live ISOs (`-live-`) run D-PlaneOS from the USB drive without installing. For a cluster's third vote there are witness images: `dplaneos-witness-v*-x86_64.qcow2` / `.img.zst` (VM or small PC) and `dplaneos-witness-v*-rpi-aarch64.img.zst` (Raspberry Pi 3/4 SD card); see [Choosing a third vote](docs/admin/THIRD-VOTE.md).
 
-**Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation. Note: Intel VA-API hardware transcoding packages (`intel-media-driver`, `intel-compute-runtime`) are not included in the ISO to keep it under 2 GB. Run `nixos-rebuild` once the system is online to install them. All core NAS features work immediately from an offline install.
+**Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation. Note: the Intel VA-API and OpenCL packages (`intel-media-driver`, `intel-compute-runtime`, x86_64 only) are left out of the ISO to keep it small; the first update (Updates page) adds them once the system is online. All core NAS features work immediately from an offline install.
 
-**Cosign / provenance:** every ISO is signed with [cosign](https://github.com/sigstore/cosign) and accompanied by an SPDX SBOM. Verify with `cosign verify-blob --bundle dplaneos-v*.iso.bundle dplaneos-v*.iso`.
+**Cosign / provenance:** every ISO is signed with [cosign](https://github.com/sigstore/cosign) and accompanied by an SPDX SBOM. Verify with:
+
+```bash
+cosign verify-blob --bundle dplaneos-v16.0.0-installer-amd64.iso.bundle \n  --certificate-identity-regexp '^https://github.com/4nonX/DPlaneOS/' \n  --certificate-oidc-issuer https://token.actions.githubusercontent.com \n  dplaneos-v16.0.0-installer-amd64.iso
+```
 
 **Rebuilding from source:** `nix build .#iso`. See [nixos/README.md](nixos/README.md).
 
 ### Minimum hardware
 
-- 64-bit CPU, x86_64 or aarch64 (Raspberry Pi 5 supported)
-- 8 GB RAM minimum, 16 GB recommended, more for large pools
+- 64-bit CPU, x86_64 or aarch64, with UEFI firmware
+- 4 GB RAM minimum, 16 GB recommended, more for large pools
 - ECC RAM strongly recommended for ZFS; non-ECC is supported but read the [warning](docs/hardware/NON-ECC-WARNING.md) first
-- One disk for the OS, plus the disks you intend to pool
+- One disk of 32 GB or more for the system, plus the disks you intend to pool
 - Full compatibility list: [Hardware Compatibility](docs/hardware/HARDWARE-COMPATIBILITY.md)
 
 ---
 
 ## Architecture
 
-The runtime is a single statically-linked Go daemon (`dplaned`) sitting behind nginx, with PostgreSQL for state. The daemon talks to ZFS, Docker, and the kernel via `exec.Command` with a strict allowlist (no shell, no string interpolation). The frontend is a pre-built React 19 bundle served as static files.
+The runtime is a single Go daemon (`dplaned`, linked against libzfs) sitting behind nginx, with PostgreSQL for state. The daemon talks to ZFS, Docker, and the kernel via `exec.Command` with a strict allowlist (no shell, no string interpolation). The frontend is a pre-built React 19 bundle served as static files.
 
 ```
 Browser
-  └── nginx :80/:443          static files from /opt/dplaneos/app/
+  └── nginx :80/:443          static files (the UI, from the Nix store)
         └── proxy /api/ /ws/
               └── dplaned (Unix socket) (Go)
                     ├── PostgreSQL /var/lib/dplaneos/pgsql/ (node-local)
@@ -168,7 +172,7 @@ Browser
 |-----------|--------|
 | Frontend | React 19 + TypeScript + Vite, pre-built, no Node.js at runtime |
 | Backend | Go daemon, allowlist-validated exec, no shell invocation anywhere in the codebase |
-| Database | PostgreSQL 15+ (one per node) |
+| Database | PostgreSQL 17 (one per node) |
 | Auth | SCRAM-SHA-512 (RFC 5802, 100k PBKDF2 iterations), bcrypt (web login over HTTPS), LDAP bind (directory accounts), OIDC Authorization Code + PKCE (SSO accounts), TOTP 2FA, AAL1/AAL2 session assurance levels, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault, scrub, and resilver events in real time |
 | BMC | Redfish (iLO 5+, iDRAC 9+), iLO 4 legacy REST, generic IPMI. TOFU TLS fingerprint pinning - no InsecureSkipVerify. |
@@ -182,13 +186,15 @@ Deeper reading: [Architecture](docs/reference/ARCHITECTURE.md), [Design Philosop
 
 | Item | Path |
 |------|------|
-| Daemon binary | `/opt/dplaneos/daemon/dplaned` |
-| Web UI (static) | `/opt/dplaneos/app/` |
-| Version file | `/opt/dplaneos/VERSION` |
+| Daemon binary | `dplaned` on the PATH (in the Nix store) |
+| Daemon socket | `/run/dplaneos/dplaned.sock` |
+| Installed release | `/etc/dplaneos-source.json`, or `dplaned -version` |
+| System flake | `/etc/nixos/flake.nix` (written by the daemon) |
+| Daemon state | `/var/lib/dplaneos/` |
 | Database state | `/var/lib/dplaneos/pgsql/` |
 | Custom container icons | `/var/lib/dplaneos/custom_icons/` |
 | Logs | `/var/log/dplaneos/` |
-| ZED hook | `/etc/zfs/zed.d/dplaneos-notify.sh` |
+| ZED hook | `/etc/zfs/zed.d/all-dplaneos-notify.sh` |
 
 ---
 
@@ -236,9 +242,9 @@ sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 | [OTA Updates](docs/admin/OTA-UPDATES.md) | Release updates, check after the reboot, automatic rollback, HA one node at a time |
 | [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
 | [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting, TOTP 2FA setup and backup codes |
-| [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, Docker behind proxy, ZED setup |
+| [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, Docker behind a proxy, disk hot-swap, alerts, replication, file paths |
 | [Recovery Guide](docs/admin/RECOVERY.md) | Service management, DB restore, admin lockout, ZFS recovery, hot-swap, rollback |
-| [Design Documents](docs/design/README.md) | Proposed architecture changes and decision records: local-first node state, storage groups, quorum, fleet overlay, GitOps defaults |
+| [Design Documents](docs/design/README.md) | Architecture design and decision records: local-first node state, storage groups, quorum, fleet overlay, GitOps defaults |
 
 ### Reference
 
@@ -262,7 +268,7 @@ sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 
 | Document | What it covers |
 |----------|---------------|
-| [Hardware Compatibility](docs/hardware/HARDWARE-COMPATIBILITY.md) | CPUs, RAM, disk types, network, RAID controllers, auto-tuning |
+| [Hardware Compatibility](docs/hardware/HARDWARE-COMPATIBILITY.md) | CPUs, RAM, disk types, network, RAID controllers, memory tuning |
 | [Non-ECC RAM Warning](docs/hardware/NON-ECC-WARNING.md) | Why ZFS plus non-ECC is risky, probability analysis, mitigations |
 
 ### NixOS
@@ -290,7 +296,6 @@ sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 | [Security Policy](SECURITY.md) | Vulnerability reporting, safe harbour, supported versions |
 | [Individual CLA](docs/legal/CLA-INDIVIDUAL.md) | Contributor license agreement for individuals |
 | [Entity CLA](docs/legal/CLA-ENTITY.md) | Contributor license agreement for organisations |
-| [PostgreSQL Migration Guide](MIGRATION.md) | Upgrading from SQLite to PostgreSQL (v7.0.0) |
 
 ---
 

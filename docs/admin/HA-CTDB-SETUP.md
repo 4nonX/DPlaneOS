@@ -4,7 +4,7 @@
 
 CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without CTDB, SMB clients disconnect when the primary fails and must reconnect to the secondary. With CTDB, clients remain connected through failover - locks and sessions survive.
 
-**Status:** CTDB support is EXPERIMENTAL in DPlaneOS v14.6.0. Test thoroughly in staging before enabling on production clusters.
+**Status:** CTDB support is experimental. Test thoroughly in staging before enabling on production clusters.
 
 ---
 
@@ -24,10 +24,10 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
 
 ## Prerequisites
 
-1. **HA must be fully configured** (both nodes healthy, quorum established, witness reachable)
+1. **The cluster must be set up** (both nodes healthy, quorate, the third vote reachable): System › Cluster Map, or
    ```bash
-   curl -s http://NODE_IP:5000/api/ha/status | jq '.quorum'
-   # Must show: true
+   corosync-quorumtool -s | grep Quorate
+   # Must show: Quorate: Yes
    ```
 
 2. **Samba must be enabled**
@@ -36,7 +36,7 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
    # Must show: active (running)
    ```
 
-3. **Shared storage must be mounted** (Path A) or replicated (Path B)
+3. **The pool must be in a storage group**, shared (both nodes see the disks) or replicated
    ```bash
    zpool list
    # Both nodes must see the same pool
@@ -49,8 +49,8 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
 
 5. **Network connectivity** between nodes on CTDB port 4379
    ```bash
-   nc -zv PEER_IP 5000
-   # Must succeed
+   nc -zv PEER_IP 4379
+   # Must succeed once CTDB runs on the peer
    ```
 
 ---
@@ -62,13 +62,13 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
 On the primary node, create a ZFS dataset for CTDB's database:
 
 ```bash
-# Path A (shared storage) or Path B (replicated pool)
+# On the storage group's pool (shared or replicated)
 zfs create -o mountpoint=/var/lib/ctdb tank/ctdb
 chmod 700 /var/lib/ctdb
 mkdir -p /var/lib/ctdb/persistent
 ```
 
-For Path B (replicated), this dataset will be automatically replicated to the secondary node on next sync cycle.
+In a replicated group, the dataset reaches the other node with the group's next replication.
 
 Verify on both nodes:
 ```bash
@@ -79,7 +79,7 @@ ls -la /var/lib/ctdb
 
 ### Step 2: Enable CTDB in NixOS Configuration
 
-Edit your flake.nix or configuration.nix:
+Add to `/etc/nixos/local.nix` on both nodes:
 
 ```nix
 services.dplaneos = {
@@ -109,7 +109,7 @@ services.dplaneos = {
 
 **On both nodes**, apply the configuration:
 ```bash
-sudo nixos-rebuild switch
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 ### Step 3: Verify CTDB is Running
@@ -397,7 +397,7 @@ services.dplaneos.ctdb.enable = false;  # or remove the section
 
 2. Apply:
 ```bash
-sudo nixos-rebuild switch
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 3. Clean up:

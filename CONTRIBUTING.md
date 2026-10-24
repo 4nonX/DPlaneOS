@@ -5,17 +5,18 @@ Thank you for helping make DPlaneOS better. This document explains how to contri
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.25+, gcc (for ZFS interop), Node.js 20+, make, PostgreSQL
+# Prerequisites: Go (version in daemon/go.mod), Node.js 20+, PostgreSQL 15+;
+# or `nix develop`, which provides all of them
 git clone https://github.com/4nonX/DPlaneOS
 cd DPlaneOS
 
-# Build the daemon
-cd daemon && go build -o dplaned ./cmd/dplaned && cd ..
+# Build the daemon (static; see docs/reference/DEPENDENCIES.md for the libzfs build)
+cd daemon && CGO_ENABLED=0 go build -mod=vendor -o dplaned ./cmd/dplaned && cd ..
 
-# Run locally (uses local PostgreSQL)
-sudo ./daemon/dplaned -backup-path ""
+# Run locally on TCP port 9000 against a local PostgreSQL
+sudo ./daemon/dplaned -listen 127.0.0.1:9000   -db-dsn "postgres://dplaneos:dplaneos@localhost/dplaneos?sslmode=disable"
 
-# Frontend dev server (hot reload, proxies API to daemon)
+# Frontend dev server (hot reload, proxies /api and /ws to 127.0.0.1:9000)
 cd app-react
 npm install
 npm run dev
@@ -41,20 +42,21 @@ DPlaneOS/
 │   └── assets/                 # Vite-built JS/CSS bundles + self-hosted fonts
 ├── app-react/                  # Frontend source (React 19 + TypeScript + Vite)
 │   └── src/
-│       ├── routes/             # TanStack Router pages (one file per page)
+│       ├── pages/              # One file per page
+│       ├── routes/             # TanStack Router route tree (index.tsx)
 │       ├── components/         # Shared components (layout, ui/)
 │       ├── stores/             # Zustand stores (auth, websocket)
 │       ├── hooks/              # Shared hooks (useJob, useToast, etc.)
 │       └── lib/api.ts          # Typed API client (CSRF, session, 401 redirect)
 ├── docs/                       # All documentation
-├── install/                    # Install-time system files (copied to /opt/dplaneos/install/)
+├── install/                    # System files for installs outside NixOS (install.sh copies them to /opt/dplaneos)
 │   ├── config/                 # Default configuration templates
 │   ├── scripts/                # Operational and install-time scripts
 │   ├── systemd/                # systemd unit files
 │   ├── udev/                   # udev rules (hot-swap, removable media)
 │   ├── zed/                    # ZED hook for real-time ZFS event notification
 │   └── nginx-dplaneos.conf     # Reference nginx configuration
-└── nixos/                      # NixOS module and setup scripts
+└── nixos/                      # The NixOS appliance: module, configurations, installer, VM tests (nixos/tests)
 ```
 
 ## How to Contribute
@@ -80,7 +82,10 @@ Open an issue tagged `enhancement`. Describe:
 
 1. Fork the repository and create a feature branch: `git checkout -b feat/my-feature`
 2. Follow the conventions below
-3. Test your change: `cd daemon && go test ./...`
+3. Test your change:
+   - Go: `cd daemon && go test ./...` (tests that need a database skip without `DATABASE_DSN`, e.g. `postgres://dplaneos:dplaneos@localhost/dplaneos?sslmode=disable`)
+   - Frontend: `cd app-react && npm run typecheck && npm run lint && npx playwright test`; commit the rebuilt `app/` (`npm run build`), CI checks it is up to date
+   - NixOS: the VM tests, `nix build .#checks.x86_64-linux.<name> -L` (list: `nix flake show`)
 4. Open a PR against `main` with a clear description
 
 ## Coding Conventions
@@ -154,7 +159,7 @@ Changelog entries are written during development, under `## Unreleased` in [docs
 
 1. On the development branch, commit `release: vX.Y.Z "Name"`: set `VERSION` to `X.Y.Z` and rename `## Unreleased` to `## vX.Y.Z (YYYY-MM-DD) - "Name"`.
 2. Merge into `main`. CI builds and signs every asset (tarballs, installer and live ISOs, witness images, SBOMs) and creates a **draft** release named after the changelog heading, with that section as its notes.
-3. Check the draft, then publish it on the commit CI built:
+3. Check the draft: CI runs every test before it drafts a release; download the draft's ISOs, check their `.sha256`, boot the live ISO and install from the installer ISO. Then publish it on the commit CI built:
    ```bash
    gh release edit vX.Y.Z --target <main commit> --draft=false --latest
    ```

@@ -183,19 +183,39 @@
 
       # ── NixOS host SSH keys ───────────────────────────────────────────────
       # Persisting host keys means SSH clients don't see "host key changed"
-      # warnings after an OTA update to a new system slot.
+      # warnings after a reinstall of the system partition.
       "/etc/ssh/ssh_host_rsa_key"
       "/etc/ssh/ssh_host_rsa_key.pub"
       "/etc/ssh/ssh_host_ed25519_key"
       "/etc/ssh/ssh_host_ed25519_key.pub"
 
-      # /etc/hostid is not listed: NixOS generates it from networking.hostId
-      # on every activation, and the persisted copy collided with it (the
-      # activation step failed with "A file already exists at /etc/hostid").
+      # /etc/hostid is not listed: it is installed from /persist/etc/hostid
+      # on every activation (below).
 
     ]; # files
 
   }; # environment.persistence."/persist"
+
+  # ── ZFS host ID: one per machine ───────────────────────────────────────────
+  # ZFS tells systems apart by the host ID: multihost (MMP) needs a non-zero
+  # one, and a pool still imported by one node is refused to another only
+  # when their IDs differ. networking.hostId is one value for every system
+  # built from this flake, so each machine creates its own once, keeps it on
+  # /persist, and installs it as /etc/hostid on every activation (at boot,
+  # before any pool is imported, and on every switch).
+  environment.etc.hostid.enable = lib.mkForce false;
+  system.activationScripts.dplaneosHostId = {
+    deps = [ "etc" ];
+    text = ''
+      f=/persist/etc/hostid
+      if [ ! -s "$f" ] || [ "$(${pkgs.coreutils}/bin/od -An -tx4 "$f" | ${pkgs.coreutils}/bin/tr -d ' ')" = 00000000 ]; then
+        mkdir -p /persist/etc
+        ${config.boot.zfs.package}/bin/zgenhostid -f -o "$f"
+      fi
+      rm -f /etc/hostid
+      install -m 0644 "$f" /etc/hostid
+    '';
+  };
 
   # ── Create /persist subdirectories on first boot ───────────────────────────
   # systemd-tmpfiles creates these if they don't exist. Idempotent.
@@ -206,44 +226,6 @@
     "d /persist/ssh               0755 root root -"
     "d /persist/nixos             0755 root root -"
   ];
-
-  # ── Warn loudly if /persist is missing at boot ───────────────────────────
-  # This catches a misconfigured or unmounted persist partition before
-  # the daemon starts writing to the ephemeral root.
-  systemd.services.persist-health-check = {
-    description = "DPlaneOS: verify /persist is mounted";
-    wantedBy    = [ "local-fs.target" ];
-    after       = [ "local-fs.target" ];
-    before      = [ "dplaned.service" ];
-    serviceConfig = {
-      Type            = "oneshot";
-      RemainAfterExit = true;
-      ExecStart       = pkgs.writeShellScript "persist-check" ''
-        #!/bin/sh
-        set -e
-        if ! ${pkgs.util-linux}/bin/mountpoint -q /persist; then
-          # Write to all available outputs before halting so operators
-          # can diagnose remotely via IPMI SOL, serial console, or journald.
-          msg="CRITICAL: /persist is NOT mounted - DPlaneOS cannot start safely."
-          echo "$msg"
-          ${pkgs.util-linux}/bin/logger -t dplaneos-persist -p daemon.crit "$msg"
-          # Write to /dev/console directly in case journald is not up yet
-          echo "$msg" > /dev/console 2>/dev/null || true
-          echo "Recovery: boot from installer ISO, run 'fsck.ext4 -f /dev/sdX2' on the persist partition, then reboot." > /dev/console 2>/dev/null || true
-          echo "See: https://docs.dplaneos.com/recovery#persist for the full procedure." > /dev/console 2>/dev/null || true
-          exit 1
-        fi
-        # Verify key directories exist on the persist partition
-        for d in dplaneos log; do
-          if [ ! -d "/persist/$d" ]; then
-            mkdir -p "/persist/$d"
-            echo "Created /persist/$d"
-          fi
-        done
-        echo "persist-health-check: OK (/persist is mounted and writable)"
-      '';
-    };
-  };
 
   # ── Network settings from the formerly persisted /etc/systemd/network ──────
   # Installs from before this change kept the daemon's 05-dplane-* files in

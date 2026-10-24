@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## Unreleased
+
+### Security
+
+- **Session tokens were stored as they are.** A copy of the database (a dump, a backup) held every live session. The sessions table now holds the SHA-256 of each token; existing sessions are converted by migration 34 and keep working. The session list (Identity › Users & Groups → Sessions) also sent the tokens of a user's other sessions to the browser; it now lists the stored keys, which cannot be used to log in.
+- **The appliance's nginx sent no security headers.** The Content-Security-Policy, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy` existed only in the configuration for installs outside NixOS. nginx now sends them on every response.
+
+### Fixed
+
+- **Pools were not imported at boot on installed systems.** NixOS imports only the pools of `fileSystems` and `boot.zfs.extraPools`, and DPlaneOS uses neither: after a reboot every pool stayed exported until imported by hand, and the update check (which requires every pool imported before the update) rolled updates back on systems with pools. `dplaneos-zfs-import` now imports the pools in `/etc/zfs/zpool.cache` at boot; pools of a shared storage group stay with their owner's daemon. The installer VM test creates a pool, reboots and checks it is back; it fails without the fix.
+- **Every installed system had the ZFS host ID `00000000`.** ZFS multihost (a protection layer of shared storage groups) cannot be enabled without a host ID, and pools on shared disks could not tell the nodes apart. Each machine now creates its own host ID once (`/persist/etc/hostid`) and installs it as `/etc/hostid` at every activation.
+- **Disk hot-swap events never reached the daemon.** The udev rules existed only for installs outside NixOS, and the daemon refused every event that came over its socket (its localhost check accepted only loopback IP addresses): a returning disk was neither brought back online nor its pool imported. The NixOS module now passes disk add and remove events to the daemon, which accepts them from local callers with this boot's internal token (`/run/dplaneos/internal-token`), like the timer hooks.
+- **Session list:** revoking a session other than the current one never worked (the list showed shortened ids), the current session was not marked, and a short id crashed the request.
+- **The flake exported no daemon or frontend package** (`nix build .#dplaneos-daemon-cgo` failed): a shallow merge replaced them with the ISO and witness images. CI now checks the packages exist.
+- **The Audit Log page** showed "No audit entries have been recorded yet" instead of the log.
+- **Release notes** gave an install command for a domain that does not exist; they now point to the ISOs and the guides.
+- The live console texts now say that SSH to the live system needs a root password set first (`passwd`).
+
+### Changed
+
+- The sidebar: **Git** is under System (it holds the whole configuration, not only containers), **High Availability** is called as on its page.
+
+### Removed
+
+- Code nothing used: a feature-gate middleware applied nowhere, empty extension hooks, two CLI tools, two tables (migration 33), `setup-nixos.sh` (it edited a `configuration.nix` an installed system does not use), a persist check that could never run (`/persist` is mounted before it), and the SQLite migration guide.
+
+### Documentation
+
+- Corrected throughout to match the system: installation (prompts, UEFI, SSH), the NixOS documents, the administrator, recovery, troubleshooting, alerts (the real events), optional protocols, CTDB, HA hardware, port, error, dependency, threat model, architecture and security documents.
+
+
 ## v16.0.0 (2026-10-23) - "Bedrock"
 
 Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.

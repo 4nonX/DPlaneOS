@@ -11,11 +11,11 @@ For the persistence model (what survives reboots vs. what is ephemeral), see [AR
 | Data | Location | Backup strategy |
 |------|----------|-----------------|
 | User files | ZFS pools on data disks | ZFS snapshots + ZFS Send/Receive |
-| NAS configuration (runtime) | `state.yaml` in Git | Git push to remote |
-| NAS configuration (OS-level) | `configuration.nix` / `flake.nix` | Git push to remote |
+| NAS configuration (optional) | `state.yaml` files in a Git repository | Git push to remote (see [Git-Driven NAS](GITOPS-DRIVEN-NAS.md)) |
+| NixOS settings of your own | `/etc/nixos/local.nix` (the flake is written by the daemon from the release) | Keep a copy (Git, or with your other files) |
 | NAS configuration (database and settings files) | `/var/lib/dplaneos`, `/etc/dplaneos`, `/etc/target` | Configuration backup (Settings → Maintenance); a daily copy is written to the first pool |
 | Docker container state | `/var/lib/docker/` | ZFS snapshot (if on a ZFS dataset) or container volume backup |
-| TLS certificates | `/etc/dplaneos/ssl/` (persisted) | Included in ZFS snapshot of `/persist` |
+| TLS certificates | `/etc/dplaneos/ssl/` (on `/persist`) | Included in the configuration backup (`/etc/dplaneos`) |
 
 **What you do NOT need to back up:** The NixOS system closure itself. If the boot disk fails, you reinstall from the ISO and import your ZFS pools. The ISO always contains the correct system closure for the pinned nixpkgs revision.
 

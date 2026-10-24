@@ -20,6 +20,10 @@ func TestIsInternalCronHook(t *testing.T) {
 		{"wrong token", "/api/zfs/snapshots/cron-hook", "@", "nope", false},
 		{"no token", "/api/zfs/snapshots/cron-hook", "@", "", false},
 		{"other path", "/api/zfs/snapshots", "@", tok, false},
+		// The udev helper sends the token; a request through nginx (also
+		// over the socket) without it is refused.
+		{"disk event", "/api/internal/disk-event", "@", tok, true},
+		{"disk event without token", "/api/internal/disk-event", "@", "", false},
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest("POST", c.path, nil)

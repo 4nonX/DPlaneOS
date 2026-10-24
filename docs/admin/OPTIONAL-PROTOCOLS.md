@@ -52,7 +52,7 @@ POST /api/iscsi/targets
 ```bash
 # Install iscsiadm
 nix-env -iA nixpkgs.openiscsi   # on NixOS
-# or: apt install open-iscsi    # on the initiator (not the DPlaneOS host)
+# Debian/Ubuntu initiator: apt install open-iscsi
 
 # Discover targets
 iscsiadm -m discovery -t sendtargets -p NAS_IP
@@ -162,60 +162,32 @@ FTP and FTPS are for file transfer to clients that cannot use SMB or NFS - legac
 
 **Note:** Plain FTP transmits credentials unencrypted. Use FTPS (FTP over TLS, explicit mode) wherever possible.
 
-The daemon manages vsftpd via systemctl. To install vsftpd, add it to your system packages in `configuration.nix`:
-
-```nix
-environment.systemPackages = [ pkgs.vsftpd ];
-```
-
-Run `nixos-rebuild switch`, then configure via the UI. Start/stop is controlled by the daemon through its API.
+vsftpd is part of the system (`services.dplaneos.ftp.enable`, on by default). The daemon writes its configuration to `/var/lib/dplaneos/ftp/` and runs it as the unit `dplaneos-vsftpd` while FTP is enabled on the page.
 
 ### Configure via UI
 
-Shares: FTP: Settings.
+Sharing › FTP / FTPS.
 
-Key options:
-- **Anonymous access**: disabled by default; enable only for public read-only shares
-- **FTPS (TLS)**: enabled by default; requires a TLS certificate
-- **Passive port range**: default 40000-40100; adjust if your firewall NAT has a different range
-- **Upload directory**: the directory FTP users land in after login
-- **Max connections per IP**: throttle per-client connection count
+Options:
+- **Mode**: FTP or FTPS (TLS)
+- **Port** (default 21) and **passive port range** (default 40000-40100)
+- **Local users**: allow the DPlaneOS users to log in; **allowed users** limits it to a list
+- **Write access** and **chroot** (users stay in their home directory)
+- **Anonymous access**: off by default; enable only for public read-only shares
+- **Max clients** and **max per IP**, **banner**
+- **TLS certificate and key**: empty uses a self-signed certificate the daemon creates in `/var/lib/dplaneos/ftp/`
 
 ### Passive Mode and Firewall
 
-FTP active mode requires inbound connections from the server to the client, which fails through NAT. Passive mode is always preferred.
+FTP active mode requires inbound connections from the server to the client, which fails through NAT. Passive mode is always preferred; it needs the passive port range open.
 
-Passive mode requires a range of ports to be open:
-```yaml
-# In state.yaml
-system:
-  firewall:
-    tcp: [21, 990, 40000, 40001, 40002, ..., 40100]
-```
-
-For the exact passive port range, check the vsftpd configuration or the FTP settings page. The default range is 40000-40100 (101 ports).
-
-If the NAS is behind NAT, also configure the external IP in vsftpd so passive mode announcements contain the correct address:
-```
-# /etc/vsftpd.conf (managed by daemon)
-pasv_address=PUBLIC_IP
-```
-
-This is configurable in the UI: Shares: FTP: Advanced: Passive address.
-
-### FTPS Certificate
-
-The daemon uses the system TLS certificate (configured in Settings: System: HTTPS) for FTPS. No separate certificate configuration is needed.
-
-### FTP Users
-
-FTP uses the same local user accounts as the web UI. Users are chrooted to their home directory (`/mnt/pool/users/<username>`) by default. To allow a user to access a different path, configure it in Shares: FTP: User Paths.
+Open TCP 21 and the passive range with `services.dplaneos.ftp.openFirewall = true;` in `/etc/nixos/local.nix` (then rebuild), or with allow rules on the Firewall page (Security › Firewall).
 
 ### API
 
 ```
-GET  /api/ftp/status        # vsftpd running state + connected clients
-GET  /api/ftp/config        # current vsftpd configuration
+GET  /api/ftp/status        # vsftpd running state
+GET  /api/ftp/config        # current configuration
 PUT  /api/ftp/config        # update configuration
 POST /api/ftp/start         # start vsftpd
 POST /api/ftp/stop          # stop vsftpd
@@ -235,50 +207,32 @@ Use MinIO when you need:
 
 MinIO is distinct from Cloud Sync - Cloud Sync uploads data to external providers. MinIO makes your NAS act as the S3 provider.
 
-The daemon manages MinIO via systemctl and writes `/etc/minio.env`. To install MinIO, add it to your system packages in `configuration.nix`:
-
-```nix
-environment.systemPackages = [ pkgs.minio ];
-```
-
-Run `nixos-rebuild switch`, then configure via the UI. The data directory must be on a ZFS dataset (not the boot disk).
+MinIO is not installed by default (it is large). Enable it with `services.dplaneos.s3.enable = true;` in `/etc/nixos/local.nix` and rebuild (`sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure`). The daemon then runs it as the unit `dplaneos-minio`, with its settings in `/var/lib/dplaneos/minio/`, and starts it again at boot while it is enabled.
 
 ### Configure via UI
 
-Settings: MinIO: Enable MinIO.
+Sharing › S3 Object Storage.
 
 Options:
-- **Data directory**: ZFS dataset path for bucket data (must exist)
-- **API port**: 9000 (default MinIO port; the DPlaneOS daemon no longer uses any TCP port, so 9000 is available)
-- **Console port**: 9901
-
-The UI also shows the generated root credentials. Change them after first setup.
-
-### Configure via Environment
-
-The daemon manages MinIO via `/etc/minio.env`. To set custom configuration:
-
-```bash
-# /etc/minio.env (managed by daemon, do not edit directly)
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=<generated>
-MINIO_VOLUMES=/mnt/tank/minio
-```
+- **Data directory**: the ZFS dataset path for bucket data (default `/tank/minio`; it must exist)
+- **API port**: 9000
+- **Console port**: 9001
+- **Root user and password**: set a password before starting
 
 ### Access MinIO
 
-MinIO is accessible at `http://NAS_IP:9900` (S3 API) and `http://NAS_IP:9901` (web console).
+MinIO is accessible at `http://NAS_IP:9000` (S3 API) and `http://NAS_IP:9001` (web console).
 
 Create an application-specific access key:
 ```bash
-mc alias set local http://NAS_IP:9900 minioadmin PASSWORD
+mc alias set local http://NAS_IP:9000 minioadmin PASSWORD
 
 mc mb local/mybucket
 mc cp myfile.txt local/mybucket/
 mc ls local/mybucket/
 ```
 
-Or via the MinIO console (port 9901): Access Keys: Create Access Key.
+Or via the MinIO console (port 9001): Access Keys → Create Access Key.
 
 ### Rclone with MinIO
 
@@ -289,27 +243,21 @@ type = s3
 provider = Minio
 access_key_id = YOUR_ACCESS_KEY
 secret_access_key = YOUR_SECRET
-endpoint = http://NAS_IP:9900
+endpoint = http://NAS_IP:9000
 ```
 
 Then use `rclone` commands with the `minio-local:` remote.
 
 ### Firewall
 
-```yaml
-system:
-  firewall:
-    tcp: [9900, 9901]
-```
-
-Port 9900 (S3 API) should be accessible to application servers. Port 9901 (console) can be restricted to management networks.
+Open the ports with allow rules on the Firewall page (Security › Firewall): 9000 (S3 API) for application servers, 9001 (console) for management networks only.
 
 ### API
 
 ```
-GET  /api/s3/status         # MinIO running state, version
+GET  /api/s3/status         # MinIO running state
 GET  /api/s3/config         # current configuration
-PUT  /api/s3/config         # update data directory, ports
+PUT  /api/s3/config         # update data directory, ports, credentials
 POST /api/s3/start          # start MinIO
 POST /api/s3/stop           # stop MinIO
 POST /api/s3/restart        # restart MinIO (applies config changes)

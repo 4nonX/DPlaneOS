@@ -28,13 +28,11 @@ There is no separate control plane. Git is the control plane.
 
 ## The Loop Is Closed in Both Directions
 
-DPlaneOS is not a one-directional deploy system. When you are ready to commit the current state of a node to Git, the Capture workflow reads the complete live system state at that moment, across every category at once, and generates the full `state.yaml` for you. It does not matter how many changes were made, by how many people, or in what order. One Capture call gets all of it.
+DPlaneOS is not a one-directional deploy system. A change made in the web interface becomes a commit (or a pull request) within seconds, listing each resource, who changed it and when. A change pushed to the repository comes back to the node: it waits for approval on the Git page, or is applied at once if you switch automatic apply on. A change on both sides is a conflict you decide, with both versions side by side. Nothing is overwritten silently.
 
-The operator reviews the output, adjusts if needed, and commits it to Git. Nothing is committed without review. The discipline is deliberate: Git is the record, and every change to that record is an explicit human decision.
+The first time the repository is connected, the node writes its whole configuration to it: the baseline. From then on the repository and the node stay in step in both directions, on every node of a cluster, each scope written by exactly one node.
 
-During initial setup, this means you can make every change freely through the UI, as fast as you like, with as many people working concurrently as needed. When the system looks right, capture once, review once, commit once as the baseline.
-
-Drift between what is in Git and what is running on the node is detected automatically every five minutes and surfaced immediately in the UI. Drift cannot hide.
+A change made outside the web interface (a shell, another tool) is found by the configuration history within five minutes and committed like any other change, or, with self-heal on, replaced by the repository's version. Drift cannot hide.
 
 ---
 
@@ -100,11 +98,11 @@ After the boot, a check runs for up to five minutes: the daemon answers, nginx a
 
 The lab proof is a NixOS VM test (`checks.update`) that boots through systemd-boot, applies a working update (kept) and a broken one (rolled back by itself).
 
-The `/persist` partition is never touched by OTA. PostgreSQL data, container images, Samba state, GitOps repository checkout, SSH host keys: all survive every update unchanged, on a dedicated partition separate from both OS slots.
+The `/persist` partition is never touched by an update. PostgreSQL data, container images, Samba state, the Git clone, SSH host keys: all survive every update unchanged, on a dedicated partition separate from the system.
 
-In a HA cluster, OTA is zero-downtime: update the standby, verify it, initiate a controlled failover so the VIP migrates to the freshly-updated node, then update the node that is now standby. Total client impact is one VIP migration.
+In a cluster, nodes are updated one at a time: maintenance mode moves a node's storage groups to another node, the node is updated and checked, then the next one. Clients see each group's address move once.
 
-See [OTA Updates](docs/admin/OTA-UPDATES.md) for the full procedure, verify-only mode, and manual rollback.
+See [OTA Updates](docs/admin/OTA-UPDATES.md) for the full procedure and manual rollback.
 
 ---
 
@@ -132,9 +130,9 @@ The daemon runs as root but constrains itself at the systemd unit level: `Protec
 
 Input is validated before it reaches the allowlist at all. Pool names, dataset names, device paths, and share names each pass through dedicated validators (`ValidatePoolName`, `ValidateDatasetName`, `ValidateDevicePath`) that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
 
-**Authentication and sessions.** Session tokens are 32-byte random values stored hashed in PostgreSQL. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit headers cross-origin, which makes the architecture inherently CSRF-resistant. CSRF tokens (HMAC-SHA256 double-submit) are layered on top for defence in depth. TOTP two-factor authentication is available per user.
+**Authentication and sessions.** Session tokens are 32-byte random values; PostgreSQL stores only their SHA-256. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit headers cross-origin, which makes the architecture inherently CSRF-resistant. CSRF tokens (HMAC-SHA256 double-submit) are layered on top for defence in depth. TOTP two-factor authentication is available per user.
 
-**RBAC.** Four roles (viewer, user, operator, admin) with 34 discrete permissions enforced at the handler level. Role assignments support expiry dates. System roles are immutable in the database.
+**RBAC.** Four roles (viewer, user, operator, admin) with 31 discrete permissions enforced per route. Role assignments support expiry dates. System roles are immutable in the database.
 
 **The audit chain.** Every state-changing operation appends to an audit log. Each row includes an HMAC-SHA256 hash computed over its content plus the previous row's hash, keyed by a 32-byte key stored separately from the database at `/var/lib/dplaneos/audit.key`. Deleting or modifying any row breaks the chain, detectable via `GET /api/system/audit/verify-chain`. An attacker with database write access alone cannot forge the chain without also possessing the key.
 
@@ -152,7 +150,7 @@ Directory users authenticate against the configured bind DN directly. On first s
 
 Local accounts and directory accounts coexist. The `admin` account created at install time is always local and is unaffected by LDAP configuration. If the directory is unreachable, local accounts continue to work. There is no hard dependency on directory availability for system operation.
 
-LDAP bind passwords are stored in PostgreSQL and are redacted from all API responses. The `GET /api/ldap/config` endpoint never returns the bind password in any form.
+LDAP bind passwords are stored sealed in PostgreSQL and are redacted from all API responses. The `GET /api/ldap/config` endpoint never returns the bind password in any form.
 
 ---
 

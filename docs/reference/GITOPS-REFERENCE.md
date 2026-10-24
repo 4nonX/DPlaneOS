@@ -206,7 +206,7 @@ system:
 ```yaml
 users:
   - username: alice
-    password_hash: "$2b$12$..."   # bcrypt hash; capture never exports plaintext
+    password_hash: "$2b$12$..."   # a bcrypt hash sets the password; exports write a secret reference instead
     email: alice@example.com
     role: operator
     active: true
@@ -310,7 +310,7 @@ fabrics:
 
 ## Reconciliation: How Apply Works
 
-Every apply (a change from the Git repository, approved or automatic; a change from another node; a rollback; `dplaned --apply-only`) runs the following steps:
+Every apply (a change from the Git repository, approved or automatic; a change from another node; a rollback; `dplaned -apply`) runs the following steps:
 
 ### 1. Parse and Validate
 
@@ -344,13 +344,7 @@ Each resource in both desired and live state is compared and assigned a `DiffIte
 
 ### 4. Check for BLOCKED Items
 
-If any item is `BLOCKED` and has not been explicitly approved via `POST /api/gitops/approve`, the plan halts with an error. The UI shows which items need approval and what the consequences are.
-
-To approve a single blocked item:
-```
-POST /api/gitops/approve
-{"item_id": "shares/media", "reason": "clients notified"}
-```
+A `BLOCKED` item (for example removing a share with connected clients, or a dataset that holds data) is never executed, approved or not: the apply fails with the reason, and the Git page shows it on the scope's line. Resolve it by hand (disconnect the clients, destroy the dataset yourself if it is no longer needed) and apply again (**Resume**, or the next check). Approving a scope (`POST /api/gitops/approve {scope, sha}`) applies the repository's changes at that commit; it does not override a block.
 
 **Data is never destroyed.** Git holds the shape of the storage, not its contents. A dataset is destroyed only when it is provably empty: a mounted filesystem with an empty directory, no snapshots and no child datasets (a volume never qualifies, its content cannot be inspected). ZFS's `used` cannot decide this: even an empty filesystem reports about 100 KiB of metadata. A dataset or pool that holds anything stays BLOCKED, and approving it does not change that: the apply fails with what the dataset holds. Destroy it by hand (`zfs destroy -r`) when it is no longer needed; the next apply converges.
 

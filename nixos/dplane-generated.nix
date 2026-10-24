@@ -3,7 +3,7 @@
 # DPlaneOS v5.0 - JSON-to-Nix Bridge
 #
 # THIS FILE IS STATIC. The DPlaneOS daemon never modifies it.
-# Installed once by setup-nixos.sh. Do not edit manually.
+# A module of the release (flake.nix). Do not edit on a system.
 #
 # Architecture:
 #   The daemon writes /var/lib/dplaneos/dplane-state.json (pure JSON).

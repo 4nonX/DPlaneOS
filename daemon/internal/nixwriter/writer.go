@@ -11,8 +11,8 @@
 // The v5 approach:
 //   - The daemon writes ONE file: /var/lib/dplaneos/dplane-state.json
 //     This is pure JSON produced by encoding/json.Marshal - 100% safe by construction.
-//   - /etc/nixos/dplane-generated.nix is a STATIC file installed once by
-//     setup-nixos.sh. It never changes. It contains:
+//   - nixos/dplane-generated.nix is a STATIC module of the release (part of
+//     the flake's system). It never changes. It contains:
 //     let s = builtins.fromJSON (builtins.readFile /var/lib/dplaneos/dplane-state.json);
 //     and maps JSON keys to NixOS module options using `s.key or default` guards.
 //   - Because the .nix file is static and contains no interpolated values,
@@ -39,10 +39,6 @@ const (
 	// StateJSONPath is the only file the daemon ever writes for NixOS state.
 	// The static dplane-generated.nix reads this file via builtins.fromJSON.
 	StateJSONPath = "/var/lib/dplaneos/dplane-state.json"
-
-	// GeneratedNixPath is where setup-nixos.sh installs the static bridge file.
-	// The daemon does NOT write to this path in v5.
-	GeneratedNixPath = "/etc/nixos/dplane-generated.nix"
 
 	// AppliedChecksumPath stores the SHA256 of the dplane-state.json that
 	// was last successfully applied via nixos-rebuild.

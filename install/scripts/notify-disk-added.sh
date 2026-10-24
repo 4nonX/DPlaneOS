@@ -49,8 +49,9 @@ MODEL=$(lsblk -n -d -o MODEL "$DEVICE" 2>/dev/null | head -1 | xargs)
 logger -t dplaneos "Disk added: $DEVICE (type=$TYPE model=$MODEL size=$SIZE serial=$SERIAL wwn=$WWN)"
 
 # POST event to daemon HTTP API
+TOKEN=$(cat /run/dplaneos/internal-token 2>/dev/null) || exit 0  # daemon not running
 curl -sf --max-time 5 --unix-socket "$DAEMON_SOCK" -X POST "http://localhost/api/internal/disk-event" \
-    -H "Content-Type: application/json" \
+    -H "Content-Type: application/json" -H "X-Internal-Token: $TOKEN" \
     -d "{\"action\":\"added\",\"device\":\"$DEVICE\",\"device_type\":\"$TYPE\",\"serial\":\"$SERIAL\",\"wwn\":\"$WWN\",\"model\":\"$MODEL\",\"size\":\"$SIZE\"}" || true
 
 exit 0

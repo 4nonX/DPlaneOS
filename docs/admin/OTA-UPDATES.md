@@ -90,7 +90,7 @@ If you find a problem after the check has passed:
 
 ```bash
 sudo nixos-rebuild switch --rollback       # previous generation, now and at boot
-sudo sed -i 's|DPlaneOS/v[0-9.]*"|DPlaneOS/v15.1.0"|' /etc/nixos/flake.nix   # the release you went back to
+sudo sed -i 's|DPlaneOS/v16.0.0"|DPlaneOS/v15.1.0"|' /etc/nixos/flake.nix   # the release you went back to
 ```
 
 Without the second line, the next rebuild would build the newer release again. If the system does not boot, pick an older generation in the systemd-boot menu.
@@ -102,18 +102,17 @@ systemd-boot keeps the two newest generations in the menu (`boot.loader.systemd-
 ## HA clusters: one node at a time
 
 ```
-1. Maintenance mode on the standby node (B)
-   POST /api/ha/maintenance {"enable": true, "duration_minutes": 120}
+1. Maintenance mode on node B: System › Cluster Map › Start maintenance
+   (POST /api/cluster/maintenance {"reason": "update"} on B).
+   B's shared and replicated storage groups move to other nodes first.
 2. Update B (its Updates page, or POST /api/system/updates/nixos/apply on B)
 3. B reboots and passes its check (GET /api/system/updates/nixos on B: last_result ok)
-4. Controlled failover to B
-   POST /api/ha/failover {"dry_run": false}
-5. Maintenance mode on A, update A the same way
-6. End maintenance mode on both nodes
-   POST /api/ha/maintenance {"enable": false}
+4. End maintenance on B (DELETE /api/cluster/maintenance); move groups back
+   if you want (POST /api/groups/{name}/move)
+5. The same for A
 ```
 
-Clients see one move of the virtual IP, in step 4.
+The cluster stays quorate as long as one node and the third vote are up. Clients see a group's address move once per planned move. See [High Availability](HIGH-AVAILABILITY.md).
 
 ---
 

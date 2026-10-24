@@ -41,21 +41,21 @@ For deeper dives into operational areas, see the dedicated guides:
 ### Creating Users
 
 **Via UI:**
-1. Navigate to **Settings → Users**
+1. Navigate to **Identity › Users & Groups** (tab **Users**)
 2. Click **Create User**
-3. Fill in username (lowercase, no spaces), email, and password (12+ characters)
+3. Fill in username (lowercase, no spaces), email, role and password (8+ characters with upper and lower case, a digit and a symbol)
 4. Click **Create**
-5. Assign a role (see Role Management)
 
 Every local user is also a file-sharing account: a system account (UID from 3000, no shell, no home) that SMB and NFS use, logging in to SMB with the same password. The Users page shows this per user (*File sharing*). A user whose password was set where only its hash is known (installer, GitOps, an older version) can use SMB after their next login to the web interface or a password change. Usernames must be lower-case letters, digits, `-` and `_` to become system accounts, and a name a system account already has (e.g. `nginx`) is not used for file sharing. DPlaneOS groups become system groups with the same members (GID from 3000), usable as `@group` in a share's valid users.
 
 ### Assigning Roles
 
-1. Settings → Users → click on the user
-2. Roles section → **Assign Role**
-3. Select a role: Admin, Operator, Viewer, or User
-4. Optionally set an expiry date
-5. Click **Assign**
+Each user has an **account role** (Admin, Operator, User or Viewer), set when the user is created or edited. Additional roles add their permissions:
+
+1. Identity › Users & Groups → the **shield icon** (Roles) next to the user
+2. Tick the additional roles; each change applies at once
+
+An expiring role assignment can be made through the API (`POST /api/rbac/users/{id}/roles` with `expires_at`).
 
 Role changes take effect immediately. The permission cache is invalidated on each assignment or removal. The 5-minute TTL is only a fallback for changes made directly to the database outside the daemon.
 
@@ -63,7 +63,7 @@ Role changes take effect immediately. The permission cache is invalidated on eac
 
 Use this when a user is locked out or needs a forced credential rotation.
 
-1. Settings → Users → click the **lock_reset icon** next to the user
+1. Identity › Users & Groups → the **reset password icon** next to the user
 2. Enter a temporary password (full strength requirements apply)
 3. Click **Set Temporary Password**
 
@@ -73,12 +73,11 @@ The user's existing sessions are immediately revoked. On their next login they a
 
 ### Removing Users
 
-Users cannot be deleted while they have active sessions. User ID 1 (the initial admin) cannot be deleted.
+The last active admin account cannot be deleted, nor can system service accounts.
 
-1. Settings → Users → click on the user
-2. Click **Delete User** and confirm
+1. Identity › Users & Groups → the delete icon next to the user, and confirm
 
-On deletion: the account, role assignments, and active sessions are all removed. An audit log entry is created.
+On deletion: the account, role assignments, and active sessions are all removed. An audit log entry is created. Your own active sessions are listed (and can be ended) on the **Sessions** tab.
 
 ---
 
@@ -96,11 +95,8 @@ On deletion: the account, role assignments, and active sessions are all removed.
 
 ### Creating Custom Roles
 
-1. Settings → Roles and Permissions → **Create Role**
-2. Enter a name, display name, and description
-3. Save, then click on the new role
-4. Select the permissions it should have
-5. Click **Save Permissions**
+1. Identity › Users & Groups → tab **Roles** → **Create Role**
+2. Enter a name and description, tick the permissions it should have, and save
 
 ### Permission Reference
 
@@ -136,11 +132,11 @@ Permissions are `resource:action` pairs. Not all resources expose all actions.
 | 6 | RAID-Z2 | 67% | 2 disks |
 | 6 | RAID-Z3 | 50% | 3 disks |
 
-**Steps:** Storage → Pools → **Create Pool** → select disks → choose RAID level → enter pool name → Create.
+**Steps:** Storage › ZFS Pools → **Create Pool** → select disks → choose RAID level → enter pool name → Create.
 
 ### Managing Datasets
 
-**Create:** Storage → Datasets → **Create Dataset**. Recommended settings: compression `lz4`, set quotas per user.
+**Create:** Storage › Datasets → **Create Dataset**. Recommended settings: compression `lz4`, set quotas per user.
 
 **Best practices:**
 - Use hierarchical names: `pool/data/users/alice`
@@ -150,23 +146,16 @@ Permissions are `resource:action` pairs. Not all resources expose all actions.
 
 ### Scrubbing Pools
 
-Scrubs verify on-disk data integrity and auto-repair from parity. Recommended monthly.
+Scrubs verify on-disk data integrity and auto-repair from parity. Every pool is scrubbed once a month (`services.zfs.autoScrub`).
 
-**Via UI:** Storage → Pools → select pool → **Start Scrub**.
+**Via UI:** Storage › ZFS Pools → select pool → **Start Scrub**, or set a **Scrub Schedule** for the pool on the same page.
 
 ### Pool Maintenance (Clear/Online)
 
 For troubleshooting pool errors or managing hot-swap replacements:
 
-- **Clear Errors**: Storage → Pools → select pool → **Clear**. Resets the pool's error counters (useful after a known cable issue or transient fault).
+- **Clear Errors**: Storage › ZFS Pools → select pool → **Clear**. Resets the pool's error counters (useful after a known cable issue or transient fault).
 - **Online Device**: If a device was previously detached or disconnected, use the **Online** action in the disk management view to attempt to bring it back into the pool.
-
-**Via cron:**
-```bash
-sudo crontab -e
-# Add:
-0 2 1 * * /usr/sbin/zpool scrub tank
-```
 
 ### Pool and Dataset Constraints
 
@@ -180,7 +169,7 @@ sudo crontab -e
 
 ### File Explorer
 
-DPlaneOS includes a web-based file explorer accessible via the **Files** navigation item.
+DPlaneOS includes a web-based file explorer: **File Explorer** in the sidebar.
 
 - **Navigation**: Browse datasets and directories in real-time.
 - **Uploads**: Supports large, chunked multi-gigabyte uploads directly to the server.
@@ -190,9 +179,9 @@ DPlaneOS includes a web-based file explorer accessible via the **Files** navigat
 
 For granular access control beyond standard owner/group permissions, the File Explorer supports POSIX ACLs.
 
-1. Navigate to **Files**.
+1. Navigate to **File Explorer**.
 2. Right-click any file or directory.
-3. Select **Manage Permissions (ACL)**.
+3. Select **Manage ACLs**.
 4. From this dialog, you can:
    - View current ACL entries.
    - Add new entries for specific users or groups.
@@ -206,14 +195,14 @@ For granular access control beyond standard owner/group permissions, the File Ex
 
 Users log in to SMB shares with their DPlaneOS user name and password (see User Management); NFS clients see files owned by the same UIDs.
 
-**SMB shares** (Shares page):
+**SMB shares** (Sharing › SMB Shares):
 - **Valid users**: users and `@groups` allowed in; empty means every user.
-- **Give these users access to the folder** (on by default for a new share): a new folder usually belongs to root, so users could open the share but not write. This sets an inherited POSIX ACL on the folder for the valid users (or the group `users`, which every account is in): read and write, or read for a read-only share. Existing contents keep their permissions; use Files → Manage Permissions for those.
+- **Give these users access to the folder** (on by default for a new share): a new folder usually belongs to root, so users could open the share but not write. This sets an inherited POSIX ACL on the folder for the valid users (or the group `users`, which every account is in): read and write, or read for a read-only share. Existing contents keep their permissions; use File Explorer → Manage ACLs for those.
 - **Guest access**: while a share allows guests, users the server does not know are let in as guest (`map to guest = Bad User`). Windows 11 refuses guest logins unless its policy allows them.
 - **Previous Versions**: ZFS snapshots of the share's dataset, including those of child datasets inside it and of schedules with their own prefix (`<prefix>-YYYYMMDD-HHMM`).
 - The server shows up under **Network** in Windows Explorer (WS-Discovery) and in the Finder (Bonjour).
 
-**NFS exports** (NFS page): served as NFSv4.0, 4.1 and 4.2 by default (`services.dplaneos.nfs.minVersion`; macOS mounts only 4.0). NFSv3 (Windows' NFS client, older ESXi) is off; `services.dplaneos.nfs.enableNFSv3 = true` turns it on with fixed helper ports opened in the firewall. New exports use `rw,sync,no_subtree_check,root_squash,crossmnt` (`crossmnt`: child datasets are visible; without it they appear empty). Unknown options are refused before they are saved.
+**NFS exports** (Sharing › NFS Exports): served as NFSv4.0, 4.1 and 4.2 by default (`services.dplaneos.nfs.minVersion`; macOS mounts only 4.0). NFSv3 (Windows' NFS client, older ESXi) is off; `services.dplaneos.nfs.enableNFSv3 = true` turns it on with fixed helper ports opened in the firewall. New exports use `rw,sync,no_subtree_check,root_squash,crossmnt` (`crossmnt`: child datasets are visible; without it they appear empty). Unknown options are refused before they are saved.
 
 ---
 
@@ -223,7 +212,7 @@ Requires permission: `docker:write`.
 
 ### Deploying Containers
 
-Containers → Docker → **Pull Image** tab to pull an image, or **Compose Stacks** tab to deploy a `docker-compose.yml`. Standalone containers can be deployed from the Containers tab via **Deploy Container**.
+Containers › Docker → **Pull Image** tab to pull an image, or **Compose** tab to deploy a `docker-compose.yml`.
 
 ### View Modes
 
@@ -236,7 +225,7 @@ Click the tune icon on any container card to open the edit modal. You can change
 - **Restart policy** - no / always / unless-stopped / on-failure
 - **Ports**, **Volumes**, and **Environment variables**
 
-Changes are applied by stopping and recreating the container. Compose-managed containers should be edited via their compose file in the Compose Stacks tab.
+Changes are applied by stopping and recreating the container. Compose-managed containers should be edited via their compose file in the Compose tab.
 
 ### Container Icons
 
@@ -284,7 +273,7 @@ A repository's compose file runs as compose project `git-<name>`. Auto-sync fetc
 
 ### Sandboxes
 
-Docker → Sandbox clones a dataset (`<pool>/sandboxes/<name>` from a `@sandbox-base-*` snapshot) to try something on a copy, mounted as a volume in a test container. **Destroy** removes the clone and its snapshot; **Cleanup** removes base snapshots whose clone was deleted by other means.
+Storage › Sandbox clones a dataset (`<pool>/sandboxes/<name>` from a `@sandbox-base-*` snapshot) to try something on a copy, mounted as a volume in a test container. **Destroy** removes the clone and its snapshot; **Cleanup** removes base snapshots whose clone was deleted by other means.
 
 ---
 
@@ -320,7 +309,7 @@ System → **Change History** lists every change to datasets, SMB shares, NFS ex
 - **Undo this change** sets one resource back to how it was before that change (later changes to the same resource are undone too). The usual safety rules apply: a rollback that would delete a dataset containing data, or a share with open connections, is refused. A deleted dataset is recreated with its settings but without its data; a deleted user cannot be restored from the history (passwords are not stored). Pools, LDAP, ACME and certificates are shown but cannot be rolled back here.
 - **Export state.yaml** downloads the current configuration in the GitOps format (without secrets and certificates), with or without a Git repository.
 
-In an HA pair the history is recorded by the active node.
+Each node records its own history.
 
 ### Configuration Sync
 
@@ -336,11 +325,13 @@ System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users
 
 **Detach** makes a node independent for good: it keeps its whole configuration and stops exchanging changes. **Remove** on a paired node stops the exchange with that one node. Both nodes can be paired again later; the preview shows what would change.
 
-Not exchanged: hostname and network interfaces and SMART tasks (they belong to each node); Docker stacks that use a pool and NVMe-oF exports (they must run only on the node that owns the pool, which comes with storage groups in a later release); LDAP, ACME and certificates (their secrets are not synchronised yet); pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
+Also exchanged: LDAP, ACME and certificates. Secrets (user passwords, the LDAP bind password, ACME credentials, certificate keys) are exchanged encrypted for the pair.
+
+Not exchanged: hostname, network interfaces and SMART tasks (they belong to each node), Docker stacks that do not use a pool, and pools. Docker stacks that use a pool and NVMe-oF exports go with the pool's storage group and run only on its owner (see [High Availability](HIGH-AVAILABILITY.md)).
 
 ### Notifications
 
-Settings → System → Notifications - configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `install/zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
+System › Alerts - configure Telegram, SMTP (email) and webhooks. ZFS events (pool degraded, disk faulted, scrub and resilver results) reach the daemon through the ZED hook and are sent there like every other alert. See [Alerts](ALERTS.md).
 
 ---
 
@@ -352,7 +343,7 @@ CPU, RAM, disk I/O, network traffic, pool health, and container status are displ
 
 ### Alert Thresholds
 
-Monitoring → Settings - configure thresholds for CPU, RAM, disk capacity, and I/O wait. Alerts route to email, webhook, Telegram, and the dashboard.
+Pool capacity raises a warning at 80 %, a critical alert at 90 % and an emergency at 95 % (checked every 5 minutes). Disk health (S.M.A.R.T.), ZFS events, UPS events, replication and updates raise their own alerts. Alerts go to Telegram, email and webhooks as set under System › Alerts, and to the dashboard.
 
 ### Viewing Logs
 
@@ -370,9 +361,9 @@ Monitoring → Settings - configure thresholds for CPU, RAM, disk capacity, and 
 # Manual snapshot
 zfs snapshot tank/data@backup-$(date +%Y%m%d)
 
-# Automatic snapshots - configure via services.zfs.autoSnapshot in configuration.nix
-# services.zfs.autoSnapshot.enable = true;
 ```
+
+Scheduled snapshots (every 15 minutes to monthly, with retention) are set under Data Protection › Snapshot Scheduler; see [Backup and Replication](BACKUP-REPLICATION.md).
 
 ### Configuration Backup
 
@@ -393,34 +384,28 @@ sudo zpool import tank   # import by name
 
 ## Security Best Practices
 
-**Hardened Execution Whitelist (v6.1.0):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption. In v6.1.0, disk operations like `zpool attach` and `zpool replace` are strictly validated against `by-id` paths and pool membership.
+**Hardened Execution Whitelist:** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `smbcontrol`, `nft`, etc.). Only predefined, safe command structures are allowed, with arguments passed as separate elements and never through a shell. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) is restricted to validated patterns, and disk operations like `zpool attach` and `zpool replace` are validated against `by-id` paths and pool membership.
 
 **Path Normalization:** DPlaneOS is fully path-agnostic. It does not rely on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. On NixOS this is essential as binaries live under `/nix/store`.
 
 **Allowed Base Paths:** File operations (create, delete, rename, chown, chmod) are restricted to a defined set of "safe" base paths:
 - `/mnt/*` (Main storage pools)
 - `/home/*` (User directories)
-- `/tank/*`, `/data/*`, `/media/*`, `/opt/*`, `/srv/*` (Common storage mountpoints)
+- `/tank/*`, `/data/*`, `/opt/*`, `/srv/*` (Common storage mountpoints)
 - `/tmp/*` (Temporary files)
 - `/var/lib/dplaneos/` (Application data)
 
-**Passwords:** Minimum 8 characters with uppercase, lowercase, digit, and special character (12+ recommended). On first install the setup wizard creates the admin account - no pre-generated password is printed; you set it during wizard Step 1. The forced-change flag (`must_change_password`) is server-enforced: all API routes except `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` return HTTP 403 until the flag is cleared. When changing a password, all other active sessions are revoked automatically.
+**Passwords:** Minimum 8 characters with uppercase, lowercase, digit, and special character (12+ recommended). The admin password is set in the installer (on a live system: in the setup wizard); no password is pre-generated. The forced-change flag (`must_change_password`) is server-enforced: all API routes except `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` return HTTP 403 until the flag is cleared. When changing a password, all other active sessions are revoked automatically.
 
-To reset a forgotten or compromised password, an admin uses **Settings → Users → lock_reset icon** to set a temporary password (see User Management above). There is no self-service password reset - this is intentional for a NAS with no email integration.
+To reset a forgotten or compromised password, an admin uses **Identity › Users & Groups → reset password icon** to set a temporary password (see User Management above). Locked out entirely: `sudo dplaneos-recovery` on the console (see [Recovery](RECOVERY.md)). There is no self-service password reset.
 
-**HTTPS:** Set up a TLS certificate via certbot or your reverse proxy. The nginx config ships with appropriate security headers.
+**HTTPS:** Security › Certificates: request a certificate through ACME (Let's Encrypt), import one, or generate a self-signed one, and activate it; nginx serves it after the pending NixOS changes are applied (System › Settings → NixOS). nginx sends security headers (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy) on every response.
 
-**Firewall:**
-```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp
-sudo ufw enable
-```
+**Firewall:** Security › Firewall: allow or deny ports by source, on top of the ports the system opens (see Firewall above).
 
-**Fail2ban:** Install `fail2ban` and configure it to monitor `/var/log/dplaneos/access.log` (maxretry 5, bantime 3600).
+**Login throttling:** failed logins from one address are slowed down: 2, 4, 8 and 16 seconds, then 30 seconds per attempt. All API requests are limited to 100 per minute per address.
 
-**Audit logs:** Review monthly via Settings → Audit Log. Look for failed logins, unexpected role changes, and out-of-hours access.
+**Audit logs:** Review monthly via Security › Audit Log. Look for failed logins, unexpected role changes, and out-of-hours access.
 
 **Least privilege:** Use Operator or Viewer roles for daily-use accounts; reserve Admin for administrative tasks only. Review role assignments quarterly.
 
@@ -436,11 +421,13 @@ sudo -u postgres psql dplaneos -c "SELECT r.name FROM roles r \
 
 ### Quick Setup
 
-1. Navigate to **Identity → Directory Service**
-2. Select a preset: **Active Directory**, **OpenLDAP**, **FreeIPA**, or **Custom**
+1. Navigate to **Identity › Directory Service** (tab **Directory Setup**)
+2. Select a preset: **OpenLDAP**, **Active Directory** or **Apple Open Directory**
 3. Enter server address, Bind DN, Bind Password, and Base DN
 4. Click **Test Connection**
-5. Click **Save Configuration** and enable the toggle
+5. Save the configuration and enable the toggle
+
+More AD domains (forests) are added on the **More Domains** tab.
 
 ### Group to Role Mapping
 
@@ -451,7 +438,7 @@ sudo -u postgres psql dplaneos -c "SELECT r.name FROM roles r \
 | `Domain Users` | User | Files, Dashboard |
 | `Auditors` | Viewer | Read-only |
 
-To add a mapping: click **Add Mapping**, enter the LDAP group name, select the role, click **Add Mapping**.
+To add a mapping: tab **Role Mappings** → **Add Mapping**, enter the LDAP group name, select the role, and add it.
 
 ### Authentication Model
 
@@ -472,13 +459,12 @@ This model gives you directory-controlled access without making the management U
 |---|---|
 | `source=local` | bcrypt against local `password_hash` |
 | `source=ldap` | Real-time LDAP bind against the configured server |
-| User ID 1 (admin) | Always local bcrypt, even if `source=ldap` |
 
 ### Security Notes
 
-- The system administrator (user ID 1) always uses local authentication, even when LDAP is enabled, preventing lockout if the directory server goes down.
+- Local accounts (such as the `admin` set in the installer) always authenticate locally; a directory user with the name of a local account is not synced. A directory outage therefore never locks out local administrators.
 - TLS is enforced by default (TLS 1.2+).
-- The bind password is stored in PostgreSQL - use a read-only service account.
+- The bind password is stored encrypted with the node's secrets key - use a read-only service account.
 - If the LDAP server is unreachable, local accounts continue to work. Directory-sourced accounts will fail login until the server is reachable again.
 
 ### LDAP API
@@ -494,6 +480,8 @@ GET    /api/ldap/mappings
 POST   /api/ldap/mappings
 DELETE /api/ldap/mappings?id=N
 GET    /api/ldap/sync-log
+GET    /api/ldap/domains            (more AD domains)
+GET    /api/ldap/circuit-breaker    (directory outage protection)
 ```
 
 ### Troubleshooting LDAP
@@ -504,7 +492,7 @@ GET    /api/ldap/sync-log
 | Bind failed | Verify Bind DN and password; check the service account is not locked |
 | User not found | Check User Filter: AD uses `sAMAccountName`, OpenLDAP uses `uid` |
 | No groups mapped | Verify Group Base DN and Group Filter |
-| Admin locked out | User ID 1 always uses local auth - log in with local credentials |
+| Admin locked out | Local accounts always authenticate locally - log in with a local admin, or use `sudo dplaneos-recovery` |
 
 ---
 
@@ -514,7 +502,7 @@ DPlaneOS supports single sign-on via any OpenID Connect (OIDC) Authorization Cod
 
 ### Quick Setup
 
-1. Navigate to **Settings → SSO / OIDC**
+1. Navigate to **System › Settings** → tab **SSO / OIDC**
 2. Enter the **Issuer URL** (the base URL of your provider, e.g. `https://auth.example.com/realms/myrealm`)
 3. Enter your **Client ID** and **Client Secret** from the IdP application registration
 4. Set a **Button Label** (displayed on the login page, e.g. "Sign in with Keycloak")
@@ -563,7 +551,6 @@ Auto-provisioned usernames are derived from the IdP's `preferred_username` claim
 | `local` | bcrypt against local `password_hash` |
 | `ldap` | Real-time LDAP bind against the configured directory server |
 | `oidc` | OIDC flow; no local password; password-change UI is disabled for these accounts |
-| User ID 1 (admin) | Always local bcrypt regardless of source |
 
 ### Login Flow
 
@@ -639,9 +626,8 @@ sudo zpool status -v  # check for errors
 **High Memory Usage:**
 ```bash
 arc_summary  # ZFS ARC breakdown
-# To limit ARC (in /etc/modprobe.d/zfs.conf):
-# options zfs zfs_arc_max=17179869184  (16 GB in bytes)
 ```
+The ZFS ARC is limited to 16 GB by default. System › Settings → tab **Maintenance** → **Memory tuning** sets the ARC limit (and swappiness) for this machine; it applies at once and is kept across reboots and updates.
 
 **Slow Web Interface:**
 ```bash

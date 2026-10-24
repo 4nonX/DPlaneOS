@@ -53,8 +53,8 @@ The release tarball for the current version is at:
 The ZED hook is managed by the NixOS module. If it is missing, the system state has diverged from the declared configuration. Restore it by rebuilding the system:
 
 ```bash
-sudo nixos-rebuild switch
-sudo systemctl restart zed
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
+sudo systemctl restart zfs-zed
 ```
 
 ---
@@ -85,53 +85,14 @@ sudo systemctl restart dplaneos-zfs-gate
 sudo systemctl restart dplaned
 ```
 
-If the module itself is not present, run `sudo nixos-rebuild switch` to restore the declared system state.
+If the module itself is not present, run `sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure` to restore the declared system state.
 
 ---
 
-### 2. Database Initialization Fails on First Boot
+### 2. Docker Behind Firewall or Proxy
 
 **Symptom:**
-- First boot after install: daemon crashes once
-- Login screen appears but no admin credentials work
-- Daemon logs: `Failed to initialize database tables`
-- Second boot works
-
-**Cause:** Race condition - the daemon starts before PostgreSQL is fully initialized. The `dplaneos-init-db.service` unit normally prevents this; if it is absent the daemon may start too early.
-
-**Diagnosis:**
-```bash
-sudo systemctl status dplaned
-sudo journalctl -u dplaned -n 50
-
-# Check whether admin user exists
-sudo -u postgres psql dplaneos -c "SELECT username FROM users WHERE username='admin';"
-```
-
-**Fix - Option 1: Wait for automatic recovery**
-
-The daemon restarts via systemd. Wait 30 seconds, then refresh the browser. The admin user should exist on the second start.
-
-**Fix - Option 2: Interactive recovery CLI**
-```bash
-sudo dplaneos-recovery
-# Select option 5: Reset a User's Password
-```
-
-**Fix - Option 3: Without the menu**
-```bash
-printf '%s\n' 'New-Password-1!' | sudo dplaned -db-dsn "<DSN>" -secrets-key <key> -recover-reset-password admin
-```
-(`<DSN>` and `<key>`: the `-db-dsn` and `-secrets-key` of `systemctl cat dplaned`.)
-
----
-
-### 3. Docker Behind Firewall or Proxy
-
-**Symptom:**
-- One-click install modules shown in the GUI
-- Clicking Install shows a loading spinner, then nothing
-- No error message
+- Pulling an image or deploying a stack fails or never finishes
 - `journalctl -u docker` shows pull failures or timeouts
 
 **Cause:** Docker cannot reach Docker Hub. The GUI shows job progress via the async job queue - check `GET /api/jobs/<job_id>` for the actual error.
@@ -145,7 +106,7 @@ docker info | grep -i proxy
 
 **Fix - Configure Docker proxy (NixOS - persistent):**
 
-Add to `configuration.nix` and run `sudo nixos-rebuild switch`:
+Add to `/etc/nixos/local.nix` and run `sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure`:
 ```nix
 systemd.services.docker.serviceConfig.Environment = [
   "HTTP_PROXY=http://proxy.example.com:8080"
@@ -154,24 +115,7 @@ systemd.services.docker.serviceConfig.Environment = [
 ];
 ```
 
-**Fix - Configure Docker proxy (temporary, cleared on next nixos-rebuild switch):**
-```bash
-sudo mkdir -p /etc/systemd/system/docker.service.d
-sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
-[Service]
-Environment="HTTP_PROXY=http://proxy.example.com:8080"
-Environment="HTTPS_PROXY=http://proxy.example.com:8080"
-Environment="NO_PROXY=localhost,127.0.0.1"
-EOF
-sudo systemctl daemon-reload
-sudo systemctl restart docker
-docker pull hello-world:latest
-```
-
-**Fix - Firewall rules:**
-```bash
-sudo ufw allow out 443/tcp comment 'Docker Hub'
-```
+Outgoing connections are not filtered by the firewall; a proxy or firewall in your network is the usual cause.
 
 **Workaround - pre-pull the image manually:**
 ```bash
@@ -181,7 +125,7 @@ docker pull <image-name>
 
 ---
 
-### 4. Browser Cache After Upgrade
+### 3. Browser Cache After Upgrade
 
 **Symptom:**
 - Upgrade from an older version with the browser still open
@@ -217,36 +161,24 @@ Or clear the site cache:
 - Pool import did not trigger automatically
 - No `diskAdded` toast notification
 
-**Cause:** The udev hot-swap rules may not be installed or the daemon notification channel is down.
+**Cause:** The event did not reach the daemon (the udev rule is part of the NixOS module), or the daemon was not running when the disk appeared.
 
 **Diagnosis:**
 ```bash
-# Verify udev rules are installed
-ls /etc/udev/rules.d/99-dplaneos-hotswap.rules
-
-# Check udev is processing events
+# Check udev sees the disk
 udevadm monitor --subsystem-match=block
+# Insert the disk: KERNEL[...] add /devices/... (block)
 
-# Insert the disk and watch for events in the monitor output
-# Should see: KERNEL[...] add /devices/... (block)
-
-# Check daemon received the disk-added event
-sudo journalctl -u dplaned -n 20 | grep -i "disk"
+# The event's unit and the daemon's reaction
+journalctl -b | grep -i "dplaneos-disk-event"
+sudo journalctl -u dplaned -n 50 | grep "DISK EVENT"
 ```
 
-**Fix:**
+**Fix:** Send the event again:
 ```bash
-# Reinstall udev rules
-sudo cp /opt/dplaneos/install/udev/99-dplaneos-hotswap.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-
-# Ensure the notification scripts are executable
-sudo chmod +x /opt/dplaneos/install/scripts/notify-disk-added.sh
-sudo chmod +x /opt/dplaneos/install/scripts/notify-disk-removed.sh
-
-# Trigger a manual rescan
-udevadm trigger --subsystem-match=block
+sudo udevadm trigger --action=add /dev/sdX
 ```
+A disk that appeared while the daemon was stopped is seen on the Hardware page anyway; its pool can be imported under Storage › ZFS Pools › Import.
 
 ---
 
@@ -287,7 +219,7 @@ sudo -u postgres psql dplaneos -c \
   "DELETE FROM disk_registry WHERE dev_name = 'sdb';"
 
 # Then trigger re-detection
-udevadm trigger --subsystem-match=block --attr-match=removable=0
+sudo udevadm trigger --action=add --subsystem-match=block --attr-match=removable=0
 ```
 
 ---
@@ -395,7 +327,7 @@ sudo journalctl -u dplaned | grep -i "smart"
 **Fix:**
 ```bash
 # smartmontools is declared in the NixOS module - if missing, rebuild:
-sudo nixos-rebuild switch
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 
 # Restart daemon to reload the background SMART monitor
 sudo systemctl restart dplaned
@@ -425,7 +357,7 @@ sudo journalctl -u dplaned | grep -i "replicate\|replication"
 
 **Common causes:**
 - Daemon was restarted after the schedule was created - the in-memory monitor reinitializes on start and will pick up the schedule on the next tick (within 5 minutes)
-- SSH key not installed on the remote - test with: `ssh -i /root/.ssh/dplaneos_replication <user>@<host> zfs list`
+- SSH key not installed on the remote - test with: `sudo ssh -i /var/lib/dplaneos/ssh/dplaneos_replication <user>@<host> zfs list`
 - Remote host is unreachable - the pre-flight test in ReplicationPage verifies connectivity
 
 ---
@@ -436,20 +368,19 @@ sudo journalctl -u dplaned | grep -i "replicate\|replication"
 - `trigger_on_snapshot: true` is set on the replication schedule
 - Snapshots are created on schedule but replication does not follow
 
-**Cause:** Snapshot schedules use systemd timer units. If a schedule was created before the systemd timer migration, a legacy cron file may still be active instead of the current timer.
+**Cause:** Snapshot schedules run as systemd timer units, which the daemon writes as runtime units (`/run/systemd/system`) at every start. A timer that is missing means the daemon could not write it: its log says why.
 
-**Fix - Regenerate the snapshot timer:**
-1. Open Snapshot Scheduler page
-2. Edit the schedule and click Save (even with no changes)
-3. This removes any legacy cron file and registers a new systemd timer unit that calls `POST /api/zfs/snapshots/cron-hook`
+**Fix - Regenerate the snapshot timers:**
+1. Open Data Protection › Snapshot Scheduler
+2. Edit the schedule and click Save (even with no changes), or restart `dplaned`
 
 **Verify:**
 ```bash
 # Current schedules run as systemd timers
-systemctl list-timers 'dplaneos-snapshot-*'
+systemctl list-timers 'dplaneos-snap-*'
 
 # Confirm the timer unit calls the cron-hook endpoint
-cat /etc/systemd/system/dplaneos-snapshot-<name>.service
+systemctl cat 'dplaneos-snap-*.service'
 # Should show: curl ... /api/zfs/snapshots/cron-hook
 ```
 
@@ -541,9 +472,9 @@ systemctl status nginx
 systemctl status docker
 
 # Supporting services
-systemctl status dplaneos-init-db
-systemctl status dplaneos-zfs-mount-wait
-systemctl status dplaneos-realtime
+systemctl status postgresql
+systemctl status dplaneos-zfs-gate
+systemctl status dplaneos-firewall
 ```
 
 ### Step 2: Check Logs
@@ -561,36 +492,28 @@ sudo journalctl -u dplaned -p err -f
 
 ### Step 3: Check File Paths
 
-The installer places files in these locations:
-
 | Item | Path |
 |------|------|
-| Application binary | `/opt/dplaneos/daemon/dplaned` |
-| Web UI (static files) | `/opt/dplaneos/app/` |
+| Daemon binary | `dplaned` on the PATH (in the Nix store; `systemctl cat dplaned` shows it) |
+| Web UI (static files) | in the Nix store (`sudo nginx -T` shows the root) |
+| Daemon state | `/var/lib/dplaneos/` (on `/persist`) |
 | Configuration database | `/var/lib/dplaneos/pgsql/` |
 | Disk registry | Stored in the main PostgreSQL database (`disk_registry` table) |
 | Application logs | journald (`journalctl -u dplaned`) and `/var/log/dplaneos/` |
-| Version file | `/opt/dplaneos/VERSION` |
-| nginx config | Managed by NixOS (`services.nginx` in `configuration.nix`); read-only at `/etc/nginx/nginx.conf` |
-| Daemon systemd unit | `/etc/systemd/system/dplaned.service` |
+| Installed release | `/etc/dplaneos-source.json`, or `dplaned -version` |
+| System flake | `/etc/nixos/flake.nix` (written by the daemon); your own settings in `/etc/nixos/local.nix` |
+| nginx config | Managed by NixOS (`services.nginx` in `module.nix`); shown with `sudo nginx -T` |
 | ZED hook | `/etc/zfs/zed.d/all-dplaneos-notify.sh` (managed by NixOS module) |
-| udev hot-swap rules | `/etc/udev/rules.d/99-dplaneos-hotswap.rules` |
-| udev removable media rules | `/etc/udev/rules.d/99-dplaneos-removable-media.rules` |
-| Snapshot schedules | systemd timers: `/etc/systemd/system/dplaneos-snapshot-*.timer` |
-| Scrub schedules | systemd timers: `/etc/systemd/system/dplaneos-scrub-*.timer` |
+| Snapshot, scrub, SMART and rsync schedules | systemd timers written by the daemon at every start: `/run/systemd/system/dplaneos-*.timer` |
 
 ### Step 4: Check Permissions
 
 ```bash
-ls -la /opt/dplaneos/
 ls -la /var/lib/dplaneos/
 ls -la /var/log/dplaneos/
 
-# DB state must be readable by postgres/dplaned
+# DB state must belong to postgres
 stat /var/lib/dplaneos/pgsql/
-
-# Web UI files should be readable by www-data
-ls -la /opt/dplaneos/app/
 
 # Custom icons must be readable
 ls -la /var/lib/dplaneos/custom_icons/
@@ -612,7 +535,7 @@ Run these and share the output when filing a bug report:
 # System info
 uname -a
 cat /etc/os-release
-cat /opt/dplaneos/VERSION
+dplaned -version
 
 # ZFS status
 lsmod | grep zfs
@@ -637,7 +560,7 @@ sudo -u postgres psql dplaneos -c \
 sudo journalctl -u dplaned -n 20 --no-pager
 
 # Disk and memory
-df -h /opt /var/lib
+df -h / /persist
 free -h
 ```
 
@@ -662,7 +585,7 @@ DPlaneOS runs on NixOS. A full reset means reinstalling the OS from the ISO and 
 1. Boot from the DPlaneOS ISO and reinstall to the OS disk
 2. After first boot, import data pools: `sudo zpool import -a`
 3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
-4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once); or apply a `state.yaml` file directly with `sudo dplaned --apply-only`
+4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once); or apply a `state.yaml` file directly with `sudo dplaned -db-dsn "<DSN>" -gitops-state <file> -apply`
 5. Restore the configuration: Settings → Maintenance → Stored backups (the daily copy on the pool), see [BACKUP-REPLICATION.md](BACKUP-REPLICATION.md#configuration-backup)
 
 ZFS data pools are on separate disks and are completely unaffected by a boot disk reinstall.
@@ -699,7 +622,7 @@ Include:
 ```bash
 uname -a
 cat /etc/os-release
-cat /opt/dplaneos/VERSION
+dplaned -version
 sudo journalctl -u dplaned -n 50 > daemon.log
 ```
 
@@ -710,16 +633,15 @@ sudo journalctl -u dplaned -n 50 > daemon.log
 | Issue | Severity | Likely Cause | Resolution |
 |-------|----------|--------------|------------|
 | Storage tabs empty | High | ZFS module not loaded | `modprobe zfs` |
-| No admin on first boot | Medium | DB init race | Second boot auto-recovers; or use `dplaneos-recovery` |
-| User locked out / forgot password | Medium | Lost credentials | Admin uses Settings → Users → lock_reset icon to set a temp password; user must change on next login |
+| User locked out / forgot password | Medium | Lost credentials | Admin uses Identity › Users & Groups → reset password icon to set a temp password; user must change on next login |
 | LDAP user sees password change form | Low | `source` not yet in session cache | Re-login refreshes the session; LDAP accounts display an informational notice and the form is disabled |
 | Session survives browser close unexpectedly | Low | "Remember me" was checked at login | User checked Remember me; token is in localStorage; log out explicitly to revoke |
-| Docker installs silently fail | Medium | Firewall or proxy | Configure Docker proxy or pre-pull images |
+| Image pulls fail | Medium | Firewall or proxy | Configure Docker proxy or pre-pull images |
 | UI broken after upgrade | Low | Browser cache | Hard refresh (Ctrl+Shift+R) |
-| Hot-swap disk not detected | Medium | udev rules not installed | Reinstall udev rules, reload |
+| Hot-swap disk not detected | Medium | Event missed (daemon down) | `udevadm trigger --action=add /dev/sdX` |
 | Pool import not automatic | Medium | Disk not in registry | Manual `zpool import -d /dev/disk/by-id` |
 | Pool creation rejected | Low | Raw `/dev/sdX` path submitted | Reload udev, re-open Hardware page |
 | Alerts not firing | Medium | Alert not wired or de-duplicated | Test each channel; check event subscription |
 | Custom icon not showing | Low | File missing or label typo | Verify file in `custom_icons/`, check label |
-| Post-snapshot replication not firing | Low | Stale schedule (pre-timer migration) | Resave schedule to regenerate systemd timer |
+| Post-snapshot replication not firing | Low | Snapshot timer missing | Resave the schedule or restart `dplaned` |
 

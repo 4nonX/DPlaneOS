@@ -24,8 +24,8 @@ There is no imperative installation of DPlaneOS. You do not run `apt install`, c
 
 Two declarations cover the entire system:
 
-- **`configuration.nix` / `flake.nix`:** The OS-level declaration. Kernel version, ZFS package, systemd units, firewall baseline, package set, HA cluster membership. Managed by NixOS. Changes here require a rebuild.
-- **`state.yaml`:** The runtime declaration. ZFS pools and datasets, SMB/NFS shares, Docker stacks, users and groups, replication schedules, network config. Managed by the GitOps engine. Changes here are applied without a rebuild.
+- **The flake (`/etc/nixos/flake.nix`: the DPlaneOS release plus the machine's hardware configuration):** The OS-level declaration. Kernel version, ZFS package, systemd units, firewall baseline, package set. Managed by NixOS. Changes here require a rebuild.
+- **The configuration (each node's revision store; `state.yaml` is its text form, optionally in Git):** The runtime declaration. ZFS pools and datasets, SMB/NFS shares, Docker stacks, users and groups, replication schedules, network config. Managed by the daemon. Changes here are applied without a rebuild.
 
 Everything that the system does is derivable from these two files. Given the files and a blank machine, you can produce the exact running system.
 
@@ -33,7 +33,7 @@ Everything that the system does is derivable from these two files. Given the fil
 
 The flake lockfile pins every input: nixpkgs revision, kernel version, ZFS package version. Two builds from the same lockfile produce byte-for-byte identical systems. The ISO you download was built from the same inputs you can build locally.
 
-This matters because upgrade paths are predictable. You can see exactly what is changing before applying it. Rolling back is not "undo" - it is booting the previous immutable system closure, which is still present in the inactive boot slot.
+This matters because upgrade paths are predictable. You can see exactly what is changing before applying it. Rolling back is not "undo" - it is booting the previous immutable system closure, which is still present as the previous generation.
 
 The corollary: if you have `state.yaml` in Git and can boot the ISO, you can fully recover the system. No installation procedures, no "I think I had this setting", no partial states.
 
@@ -62,7 +62,7 @@ The alternative (enforcing that changes can only happen through `state.yaml`) wo
 These four principles map onto three distinct layers of the system:
 
 ```
-WHAT IT SHOULD BE  →  configuration.nix / state.yaml     (Declaration)
+WHAT IT SHOULD BE  →  flake.nix / configuration store   (Declaration)
 HOW TO GET THERE   →  nixos-rebuild / GitOps apply engine  (Reconciliation)
 MAKING IT HAPPEN   →  dplaned daemon / NixOS activation   (Execution)
 ```
@@ -73,7 +73,7 @@ Each layer has a clear owner and a clear scope:
 - **The daemon owns the workload.** ZFS datasets, SMB shares, NFS exports, Docker stacks, users - these are the things that change during normal NAS operation. The daemon manages them against `state.yaml`.
 - **Neither layer reaches into the other.** The daemon does not modify the NixOS system. NixOS does not manage dataset quotas.
 
-This separation is why OTA updates are safe: the OS slot can be updated atomically without touching the workload state. The workload state can be changed without rebooting. They are genuinely independent.
+This separation is why updates are safe: the OS can be replaced atomically by a new generation without touching the workload state. The workload state can be changed without rebooting. They are genuinely independent.
 
 ---
 
@@ -83,7 +83,7 @@ Data on ZFS pools is the most valuable thing the system holds. The architecture 
 
 **ZFS pools are independent of the OS.** Data disks are entirely separate from the boot disk. A complete boot disk failure - including reinstalling DPlaneOS from scratch - does not affect pool data. After reinstall, `zpool import -a`.
 
-**Impermanence protects the OS layer.** The root filesystem (`/`) is ephemeral and replaced on every OTA update. Only what is explicitly listed in `impermanence.nix` survives across reboots. This prevents the accumulation of unmanaged state that would make the system non-reproducible.
+**State lives apart from the OS.** The system partition holds the Nix store and the generations; all state is on `/persist`, bound into place at boot from what `impermanence.nix` lists. An update replaces the system, never the state, and the system partition can be reinstalled without losing either.
 
 **Execution is transactional.** The GitOps apply engine halts on the first failure. Already-applied items are safe by design (ZFS operations are idempotent). A partially-applied plan leaves the system in a known state, not an unknown one.
 
@@ -98,9 +98,9 @@ DPlaneOS is designed for a specific trust model: an operator with physical acces
 This means:
 
 - **The audit log is tamper-evident.** Entries are HMAC-chained. You cannot remove an entry without breaking the chain. The audit log is a forensic record, not an operational convenience.
-- **All user-facing credentials are bcrypt-hashed.** Passwords are never stored in reversible form. The GitOps capture workflow never exports password hashes.
+- **All user-facing credentials are bcrypt-hashed.** Passwords are never stored in reversible form. The `state.yaml` export and the Git repository get secret references, never password hashes or keys.
 - **Session management is explicit.** Sessions have a fixed lifetime. There are no "remember me" tokens that persist indefinitely.
-- **RBAC is fine-grained.** 34 discrete permissions. Role assignments have optional expiry. Changes are audited.
+- **RBAC is fine-grained.** 31 discrete permissions. Role assignments have optional expiry. Changes are audited.
 
 What is not in scope:
 
@@ -115,9 +115,9 @@ What is not in scope:
 
 **Why PostgreSQL and not SQLite?** The daemon runs many concurrent workers (API, reconciler, sync, monitors) that write at the same time; PostgreSQL handles that concurrency, migrations and JSON columns well, and its footprint (~150 MB) is acceptable on a NAS.
 
-**Why a daemon in Go?** The daemon is a single statically-linked binary with no runtime dependencies. It can be copied to any Linux system and run. Static linking eliminates the "which libc version" problem. Go's concurrency model matches the workload: many independent subsystems (ZFS, Docker, Samba, NFS, WebSocket hub) running concurrently without shared mutable state.
+**Why a daemon in Go?** The daemon is a single binary. On the appliance it is linked against libzfs from the same nixpkgs as the kernel module; a static, CGO-free build of the same code runs anywhere (CI, installs outside NixOS). Go's concurrency model matches the workload: many independent subsystems (ZFS, Docker, Samba, NFS, WebSocket hub) running concurrently without shared mutable state.
 
-**Why NixOS exclusively?** Every capability that distinguishes DPlaneOS from "just another web UI for ZFS" - atomic upgrades, reproducible builds, impermanence, A/B slots, pinned kernel and ZFS versions - depends on NixOS primitives. These are not optional features. They are the architecture. A port to another Linux distribution would need to reimplement all of them, at which point you have built your own NixOS subset. See [PORTING-GUIDE.md](PORTING-GUIDE.md) for what that actually entails.
+**Why NixOS exclusively?** Every capability that distinguishes DPlaneOS from "just another web UI for ZFS" - atomic updates through generations, pinned inputs, state on its own partition, enforced kernel and ZFS versions - depends on NixOS primitives. These are not optional features. They are the architecture. A port to another Linux distribution would need to reimplement all of them, at which point you have built your own NixOS subset. See [PORTING-GUIDE.md](PORTING-GUIDE.md) for what that actually entails.
 
 ---
 

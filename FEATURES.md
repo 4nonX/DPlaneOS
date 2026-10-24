@@ -1,6 +1,6 @@
 # DPlaneOS Features
 
-A NixOS-based NAS operating system. Every setting is declarative, every change is version-controlled, and every upgrade is reversible.
+A NixOS-based NAS operating system. The system is built declaratively, every configuration change is recorded and can be rolled back, and every update can be undone.
 
 ---
 
@@ -16,7 +16,6 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **Snapshot rollback:** picker for any historical restore point, destructive-action warning
 - **Pool health:** real-time status, degraded/faulted vdev banner, one-click scrub
 - **ZED events:** scrub, resilver, trim, data loss, checksum and I/O errors dispatched live to the UI
-- **Sandbox:** isolated scope for experimental ZFS operations
 
 ---
 
@@ -64,13 +63,14 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## GitOps
 
-- **`state.yaml` as source of truth:** declare pools, datasets, shares, users, stacks, and system settings in Git
-- **Plan before apply:** every reconcile produces a typed plan (CREATE / MODIFY / DELETE / BLOCKED / MANUAL) before any change is made
-- **Drift detection:** background 5-minute loop; UI banner on any deviation from declared state
-- **Capture:** generate `state.yaml` from the live system; never commits automatically
-- **BLOCKED approval:** risky operations (such as removing a share with connected clients) require explicit per-item sign-off with a written reason; a dataset or pool that holds anything (files, snapshots, child datasets) is never destroyed, approved or not: Git holds the shape of the storage, never its data
-- **Auto-apply:** webhook (HMAC-verified) or polling trigger on Git push
-- **Rollback:** `git revert` + apply restores any previous state
+- **Configuration in Git:** shares, datasets, users, groups, stacks, replication jobs and system settings as `state.yaml` files, one per scope on a cluster (cluster, each storage group, each node) or one file on a standalone node
+- **Both directions:** a change in the web interface becomes a commit or a pull request (GitHub, Gitea/Forgejo, GitLab); a change in the repository is applied after approval, or automatically if you switch that on
+- **Safe defaults (as in Argo CD):** no automatic apply, no automatic deletion, no self-heal, an empty-state guard; a dataset or pool that holds anything is never destroyed, approved or not
+- **Holds:** a commit that cannot be taken (failed apply, unsigned, unreadable) holds its scope at the last good commit with an alert; Resume or Revert
+- **Signed commits:** optionally only commits signed by allowed SSH or GPG keys are taken; nodes can sign their own
+- **Push notifications:** signed webhooks from GitHub, Gitea/Forgejo and GitLab; otherwise a check every 5 minutes
+- **Secrets stay out of Git:** passwords and keys appear as references; paired nodes exchange them encrypted
+- **Without Git:** change history, rollback to any earlier configuration and the `state.yaml` export work as well
 
 ---
 
@@ -87,7 +87,7 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Identity & Access
 
-- **Local users and groups:** POSIX account provisioning, role assignment, and expiry dates
+- **Local users and groups:** POSIX account provisioning, an account role plus additional roles (expiring ones through the API)
 - **LDAP / Active Directory:** bind, search, JIT provisioning, group-to-role mapping, configurable sync interval
 - **OIDC SSO:** Authorization Code + PKCE; handoff code keeps session token out of the URL and browser history
 - **TOTP two-factor auth:** per-user, with backup codes
@@ -137,10 +137,10 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## System & Operations
 
-- **OTA updates:** A/B slot system; inactive slot updated, health-checked on reboot, auto-reverted on failure
+- **Updates:** the next release is built as a new NixOS generation, checked after the reboot, and rolled back to the previous generation if the check fails
 - **Web terminal:** full PTY via xterm.js, direct shell access from the browser
 - **API Explorer:** live endpoint browser with request/response for every API route
-- **Power management:** shutdown, reboot, and suspend from the UI
+- **Power management:** shutdown and reboot from the UI; disk spin-down
 - **Removable media:** mount, unmount, and eject USB/optical devices
 - **Support page:** pre-upgrade snapshot checklist, NixOS generation rollback link, diagnostics bundle
 
@@ -148,10 +148,10 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## Platform
 
-- **NixOS 26.05:** Linux 6.12 LTS kernel, OpenZFS 2.3 or later (as packaged by nixpkgs)
-- **Declarative OS:** entire system described in `flake.nix`; `nixos-rebuild switch` converges to spec
-- **Impermanence:** ephemeral root filesystem; all runtime state on a dedicated `/persist` partition
+- **NixOS 26.05:** Linux 6.12 LTS kernel, OpenZFS 2.4 (as packaged by nixpkgs)
+- **Declarative OS:** the system is built from `/etc/nixos/flake.nix` (the DPlaneOS release plus the hardware configuration)
+- **Persistent state on its own partition:** the database, keys, logs and service state live on `/persist`, bound into place at boot
 - **Offline installer ISO:** full NAS closure baked into squashfs; zero internet required at install time
-- **A/B boot slots:** disko-managed partition layout; safe to reinstall without touching data disks
-- **Daemon builds:** production uses a glibc build linked against libzfs (cgo); a static, CGO-free build serves CI and non-NixOS installs
+- **Partition layout:** disko-managed (ESP, system, `/persist`) on the system disk only; data disks are never touched
+- **Daemon builds:** production uses a glibc build linked against libzfs (cgo); a static, CGO-free build serves CI and installs outside NixOS (`install.sh`)
 - **AGPL-3.0:** free to use, modify, and distribute

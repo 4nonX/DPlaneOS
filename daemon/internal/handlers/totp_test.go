@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/security"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -90,7 +91,7 @@ func (e totpEnv) pending(t *testing.T) string {
 	t.Helper()
 	tok, _ := generateSessionID()
 	if _, err := e.db.Exec(`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES ($1, $2, 'tina', $3, $4, 'pending_totp')`,
-		tok, e.user, time.Now().Unix(), time.Now().Add(5*time.Minute).Unix()); err != nil {
+		security.SessionKey(tok), e.user, time.Now().Unix(), time.Now().Add(5*time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	return tok
@@ -122,7 +123,7 @@ func TestTOTPVerify(t *testing.T) {
 	sid := r.body["session_id"].(string)
 	var status string
 	var aal int
-	_ = e.db.QueryRow(`SELECT status, aal FROM sessions WHERE session_id = $1`, sid).Scan(&status, &aal)
+	_ = e.db.QueryRow(`SELECT status, aal FROM sessions WHERE session_id = $1`, security.SessionKey(sid)).Scan(&status, &aal)
 	if status != "active" || aal != 2 {
 		t.Errorf("session %q aal %d", status, aal)
 	}
@@ -149,7 +150,7 @@ func TestTOTPVerifyLockout(t *testing.T) {
 		t.Errorf("after %d failures: %s", totpMaxFailures, r)
 	}
 	var n int
-	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, tok).Scan(&n)
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, security.SessionKey(tok)).Scan(&n)
 	if n != 0 {
 		t.Error("pending session kept after lockout")
 	}

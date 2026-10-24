@@ -1,6 +1,6 @@
 # DPlaneOS Hardware Compatibility
 
-DPlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to enterprise servers. The installer automatically detects hardware capabilities and tunes the system accordingly.
+DPlaneOS runs on 64-bit x86 and ARM machines with UEFI firmware, from small home servers to enterprise servers. A Raspberry Pi can serve as a cluster's third vote (witness image); see the ARM section.
 
 ---
 
@@ -10,12 +10,13 @@ DPlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to ent
 
 | Component | Minimum |
 |-----------|---------|
-| CPU | 1 core, x86_64 or ARM64 (64-bit only) |
-| RAM | 2 GB |
-| OS storage | 8 GB |
+| CPU | 2 cores, x86_64 or ARM64 (64-bit only) |
+| RAM | 4 GB |
+| OS storage | 32 GB (the installer refuses smaller disks) |
+| Firmware | UEFI (legacy BIOS is refused) |
 | Network | 100 Mbps Ethernet |
 
-Limitations at this tier: slow ZFS operations, limited concurrent users, no real-time file indexing.
+Limitations at this tier: slow ZFS operations, limited concurrent users.
 
 ### Recommended
 
@@ -23,7 +24,7 @@ Limitations at this tier: slow ZFS operations, limited concurrent users, no real
 |-----------|-------------|
 | CPU | 4 cores / 8 threads |
 | RAM | 16 GB+ (ECC preferred) |
-| OS storage | NVMe SSD, 20 GB+ |
+| OS storage | NVMe SSD, 64 GB+ (gives a 40 GB system partition) |
 | Network | 1 Gbps+ Ethernet |
 
 ### Optimal
@@ -56,8 +57,8 @@ Limitations at this tier: slow ZFS operations, limited concurrent users, no real
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Raspberry Pi 4/5 (4 GB+) | Supported | ZFS operations slow; consider ext4 |
-| Generic ARM64 | Supported | |
+| ARM64 servers and boards with UEFI firmware | Supported | The arm64 installer and live ISOs |
+| Raspberry Pi 4/5 | Not as a NAS | No UEFI by default; the Pi 4 (and 3) runs the witness SD image for a cluster's third vote, see [THIRD-VOTE.md](../admin/THIRD-VOTE.md) |
 | 32-bit ARM | Not supported | 64-bit required |
 
 ---
@@ -72,10 +73,13 @@ Limitations at this tier: slow ZFS operations, limited concurrent users, no real
 | ECC Registered (RDIMM) | Recommended | Enterprise servers |
 | Non-ECC | Supported with caveats | See [NON-ECC-WARNING.md](NON-ECC-WARNING.md) |
 
-### Auto-Tuned ARC Limits
+### ZFS ARC and inotify
 
-| RAM | ARC Limit | Inotify Watches |
-|-----|-----------|-----------------|
+The ZFS ARC is capped at 16 GB (kernel parameter `zfs.zfs_arc_max`). System › Settings → Maintenance → **Memory tuning** sets another limit (and the swappiness) for this machine; it applies at once and is kept across reboots and updates. On a machine with little RAM, set it lower so containers and the daemon keep room.
+
+`fs.inotify.max_user_watches` is 524288 (file-watching apps like Plex and Syncthing need many); System › Inotify Watches shows how many are in use.
+
+-----|-----------|-----------------|
 | 2 GB | 512 MB | 65K |
 | 4 GB | 1 GB | 131K |
 | 8 GB | 2 GB | 262K |
@@ -117,10 +121,11 @@ On virtualised systems, ARC is reduced by 25% and inotify by 50%.
 
 | Type | Status | Notes |
 |------|--------|-------|
-| ZFS RAID-Z | Full support | Recommended |
-| Software RAID (mdadm) | Full support | Use with ext4 or XFS |
-| HBA in passthrough mode | Full support | Passes individual disks to ZFS |
-| Hardware RAID in RAID mode | Limited | ZFS cannot see individual disks |
+| HBA / IT mode (passthrough) | Full support | Passes individual disks to ZFS: the recommended setup |
+| Onboard SATA (AHCI) | Full support | |
+| Hardware RAID in RAID mode | Not supported | ZFS cannot see individual disks, so it cannot repair them |
+
+Pools are ZFS (mirror, RAID-Z1/2/3, dRAID); DPlaneOS does not manage mdadm or hardware RAID volumes.
 
 ---
 
@@ -132,7 +137,7 @@ On virtualised systems, ARC is reduced by 25% and inotify by 50%.
 | 2.5 GbE | Full support | Good upgrade |
 | 10 GbE | Full support | High performance |
 | Bonding / LACP | Full support | Multiple NICs |
-| WiFi | Not recommended | Use wired for NAS |
+| WiFi | Not supported for the NAS | Use wired; the installer and the system configure Ethernet |
 
 ---
 
@@ -140,102 +145,56 @@ On virtualised systems, ARC is reduced by 25% and inotify by 50%.
 
 | Hardware | Reason |
 |----------|--------|
-| 32-bit x86 | 64-bit CPU required |
-| < 2 GB RAM | Insufficient for daemon + ZFS |
+| 32-bit x86 or ARM | 64-bit CPU required |
+| Legacy BIOS only (no UEFI) | The system boots with systemd-boot (UEFI) |
+| System disk under 32 GB | The installer refuses it |
+| < 4 GB RAM | Insufficient for the daemon, PostgreSQL and ZFS |
 | Hardware RAID in RAID mode | ZFS requires individual disk visibility |
-
----
-
-## Auto-Tuning
-
-On install, the system detects:
-- CPU vendor, cores, threads
-- Total RAM and ECC status
-- Disk types (NVMe, SSD, HDD)
-- Platform (bare metal vs virtualised)
-
-Settings automatically configured:
-- ZFS ARC limit (`/etc/modprobe.d/zfs.conf`)
-- inotify max watches (`/etc/sysctl.d/99-dplaneos.conf`)
-- ZFS DKMS headers for the running kernel
 
 ---
 
 ## Example Configurations
 
-### Budget Home Server (8 GB, non-ECC)
+### Home Server (8 GB, non-ECC)
 
 ```
 CPU:     Intel Celeron J4125
 RAM:     8 GB DDR4 Non-ECC
-Storage: 500 GB SSD + 4x 4TB HDD (RAID-Z1)
-
-Auto-tuned:
-  ZFS ARC:   2 GB
-  Inotify:   262,144 watches
+Storage: 128 GB SSD (system) + 4x 4TB HDD (RAID-Z1)
+Tuning:  ARC limit 4 GB (Memory tuning), so containers keep room
 ```
 
-### Enterprise Server (128 GB ECC)
+### Small Business Server (128 GB ECC)
 
 ```
 CPU:     AMD EPYC 7452
 RAM:     128 GB DDR4 ECC
-Storage: 2x 1TB NVMe + 24x 8TB HDD (RAID-Z2)
-
-Auto-tuned:
-  ZFS ARC:   32 GB
-  Inotify:   1,048,576 watches
-```
-
-### Raspberry Pi 4
-
-```
-CPU:     ARM Cortex-A72 (4 cores)
-RAM:     4 GB LPDDR4
-Storage: 64 GB microSD + USB 3.0 HDD
-
-Auto-tuned:
-  ZFS ARC:   1 GB
-  Inotify:   131,072 watches
-  Note:      ZFS operations slow; ext4 performs better here
+Storage: 2x 1TB NVMe + 24x 8TB HDD (RAID-Z2), HBA in IT mode
+Tuning:  ARC limit raised (Memory tuning) above the 16 GB default
 ```
 
 ### VM on Proxmox (16 GB allocated)
 
 ```
 CPU:     4 vCPUs
-RAM:     16 GB virtual (host has 64 GB ECC)
-Storage: Virtual disk on ZFS pool
-
-Auto-tuned:
-  ZFS ARC:   3 GB (VM reduction applied)
-  Inotify:   262,144 watches
+RAM:     16 GB virtual
+Storage: HBA passed through to the VM; the system disk virtual
+Tuning:  ARC limit 6 GB (Memory tuning)
 ```
 
 ---
 
 ## Troubleshooting by Hardware Type
 
-### Raspberry Pi
-
-- Use ext4 instead of ZFS for ZFS-on-sdcard setups
-- Boot from SSD rather than microSD if possible
-- Limit ZFS ARC manually if RAM < 4 GB
-
 ### Low RAM (< 8 GB)
 
-- ARC is automatically reduced
-- Consider periodic-only file indexing (disable real-time)
-- Monitor swap usage
+- Set a lower ARC limit (System › Settings → Maintenance → Memory tuning)
+- Run fewer containers
+- Watch memory on the dashboard
 
 ### Virtualised Systems
 
 - Pass disks through directly (HBA passthrough) rather than using virtual disks
-- Do not nest ZFS (host on ZFS + VM using ZFS = poor performance and potential corruption)
+- Do not put the VM's ZFS pools on virtual disks that live on a ZFS pool of the host (double caching, poor performance)
 - Allocate at least 8 GB RAM to the VM
-- Use virtio drivers
-
-### Old Hardware (pre-2015)
-
-- Use ext4 or XFS instead of ZFS if CPU is a bottleneck
-- Reduce worker threads in system settings
+- Use virtio drivers, and UEFI (OVMF) firmware

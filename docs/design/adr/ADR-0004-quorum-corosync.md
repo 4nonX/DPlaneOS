@@ -26,7 +26,7 @@ Today quorum comes from HTTP reachability witnesses and, for Patroni, etcd. Reac
 
 - Adds Corosync and, optionally, corosync-qnetd to the NixOS modules.
 - Removes the dependency on etcd for daemon-level quorum.
-- **Status: open question** — confirm Corosync, or keep the etcd witness for shared-storage pairs.
+- **Resolved:** Corosync for every topology; the etcd witness has been removed.
 
 ## Alternatives considered
 

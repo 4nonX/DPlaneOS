@@ -35,7 +35,7 @@ DPlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory n
 
 ### Supported Platform
 
-- **NixOS** (NixOS 26.05, Linux 6.12 LTS, OpenZFS 2.3) - the only supported platform
+- **NixOS** (NixOS 26.05, Linux 6.12 LTS, OpenZFS 2.4) - the only supported platform
 
 DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixOS Rationale](../reference/NIXOS-RATIONALE.md). For information on running DPlaneOS on other Linux distributions, see [Porting Guide](../reference/PORTING-GUIDE.md).
 
@@ -44,10 +44,10 @@ DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixO
 ## Pre-Installation Checklist
 
 - At least two physical drives: one for the OS (boot disk), one or more for data (ZFS pool)
-- A USB stick (8 GB minimum; the ISO holds the complete system, 3-5 GB) to write the installer ISO
+- A USB stick of 4 GB or more (the installer ISO, which holds the complete system, is about 2 GB)
 - UEFI boot enabled in the firmware (CSM / legacy boot off)
-- Static IP configured on the network switch/router (recommended)
-- SSH public key ready (password login is disabled post-install)
+- A DHCP reservation for the server on your router (recommended; the installed system uses DHCP on every Ethernet port, and a static address can be set in the web interface)
+- An SSH public key, if you want shell access: the installed system allows SSH with keys only (no password login, no root login). Add the key in the web interface (Identity › SSH Keys) after the first login
 
 ---
 
@@ -104,15 +104,15 @@ ip addr show
 # Or check your router's DHCP leases
 ```
 
-Open `http://<server-ip>/` in a browser. The setup wizard runs automatically on first access. You will:
+Open `http://<server-ip>/` in a browser and log in as `admin` with the password chosen in the installer. On the first login the setup wizard opens:
 
-1. Log in with the admin password chosen in the installer (the setup step cannot replace it)
+1. Admin account: log in again with the installer's password (the wizard cannot replace it)
 2. Select disks and configure a storage pool (optional - can skip and do later)
 3. Set hostname and timezone
 
-After the wizard completes, log in with the credentials you just created. If setup was interrupted (browser closed mid-wizard), simply reopen the URL - the wizard detects the partial state and resumes from the disk selection step.
+After the wizard completes, log in again. If setup was interrupted (browser closed mid-wizard), log in again: the wizard opens from the start until it has been completed.
 
-**Session persistence:** By default the session is tab-scoped (lost on browser close). Check **Remember me** at login to persist the session in `localStorage` across browser restarts, within the 24-hour server-side TTL.
+**Session persistence:** By default the session is tab-scoped (lost on browser close). Check **Remember me** at login to keep the session across browser restarts; a session ends 24 hours after login either way.
 
 ---
 
@@ -137,13 +137,11 @@ sudo -u postgres psql dplaneos -c "SELECT count(*) FROM roles;"
 
 ### HTTPS (Recommended)
 
-HTTPS is configured via the DPlaneOS web UI under Settings - TLS. The daemon provisions certificates via the ACME protocol (Let's Encrypt by default).
-
-For internal-only deployments, a self-signed certificate can be generated from the same settings page.
+HTTPS is configured in the web interface under Security › Certificates: request a certificate through ACME (Let's Encrypt), import one, or generate a self-signed certificate for internal-only use, then activate it. nginx serves it once the pending NixOS changes are applied (System › Settings → tab **NixOS** → apply); HTTP stays available alongside HTTPS.
 
 ### Firewall
 
-The NixOS module opens TCP 80 and 443 by default (`services.dplaneos.openFirewall = true`). To restrict further, set `openFirewall = false` and declare your own `networking.firewall` rules in `configuration.nix`.
+The firewall is on. It opens TCP 80 and 443 for the web interface (`services.dplaneos.openFirewall`), 22 for SSH, and the ports of the services that are enabled (SMB 139/445 and WS-Discovery 5357, NFS 2049, and 5403 for a cluster's third vote). Rules from the Firewall page (Security › Firewall) apply on top: allow or deny by port, protocol and source. NixOS settings of your own go in `/etc/nixos/local.nix` (see [Updates](OTA-UPDATES.md)).
 
 ---
 
@@ -181,9 +179,10 @@ zpool import -a
 
 | Item | Path |
 |------|------|
-| Daemon binary | `/opt/dplaneos/daemon/dplaned` |
-| Web UI files | `/opt/dplaneos/app/` |
-| Version | `/opt/dplaneos/VERSION` |
+| Daemon binary | `dplaned` on the PATH (in the Nix store) |
+| Installed release | `/etc/dplaneos-source.json`, or `dplaned -version` |
+| System flake | `/etc/nixos/flake.nix` |
+| Daemon state | `/var/lib/dplaneos/` |
 | Database state | `/var/lib/dplaneos/pgsql/` |
 | Logs | `/var/log/dplaneos/` |
 | Persistent state root | `/persist/` |

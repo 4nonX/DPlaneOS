@@ -10,8 +10,8 @@
 # ARCHITECTURE:
 #   CTDB coordinates Samba state across cluster nodes via a shared database.
 #   In HA deployments:
-#   - Path A (shared storage): CTDB database on shared SCSI-3 PR protected pool
-#   - Path B (replicated): CTDB database on replicated ZFS dataset
+#   - shared storage group: CTDB database on the shared pool
+#   - replicated storage group: CTDB database on a replicated ZFS dataset
 #
 #   CTDB runs on every node listed in `nodes`; on failover a surviving node
 #   takes over the public addresses and client connections.
@@ -60,8 +60,8 @@ in {
       default = "tank";
       description = ''
         ZFS pool name where CTDB lock database resides.
-        For Path A (shared storage): shared SCSI-3 PR protected pool (same on both nodes).
-        For Path B (replicated): replicated pool (replicated via HA ZFS send/recv).
+        For a shared storage group: the shared pool (same on both nodes).
+        For a replicated storage group: its pool (replicated with ZFS send/receive).
         CTDB database path: /var/lib/ctdb on this pool.
       '';
     };

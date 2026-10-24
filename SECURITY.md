@@ -4,11 +4,10 @@
 
 | Version | Supported |
 |---------|-----------|
-| 6.x | Active development - all fixes |
-| 5.x | Maintenance/LTS - security fixes only |
-| 4.x | End of life - upgrade required |
-| 3.x | End of life - upgrade required |
-| < 3.0 | End of life - upgrade required |
+| 16.x | Supported - all fixes, as new releases |
+| 15.x and older | Not supported - update to 16 (installs from before 16.0: see "Installs from before 16.0" in [OTA-UPDATES.md](docs/admin/OTA-UPDATES.md)) |
+
+Fixes ship in new releases; installed systems get them through the Updates page.
 
 ## Reporting a Vulnerability
 
@@ -45,21 +44,24 @@ We will not pursue legal action against researchers who:
 DPlaneOS is designed as an internal network appliance. It is not intended to be exposed directly to the public internet. Key properties:
 
 - **Authentication:** bcrypt-hashed passwords, rate-limited login with exponential backoff
-- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
+- **Sessions:** 32-byte random session tokens; PostgreSQL stores only their SHA-256
 - **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
-- **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
+- **RBAC:** 4 roles (viewer, user, operator, admin) enforced per route, with 31 discrete permissions; sensitive operations also require a session that logged in with TOTP (AAL2)
+- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. Disk operations require `by-id` paths and pass pool-membership checks.
+- **Secrets:** passwords of external services, TOTP secrets and keys are sealed in the database with the node's secrets key (`/var/lib/dplaneos/secrets.key`)
+- **Web server:** nginx sends a CSP, `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`; HTTPS once a certificate is activated
 
 For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md).
 
 ## Known Limitations
 
 - **HA is quorum-based:** nodes keep their own databases and form a Corosync cluster; storage groups fail over only with quorum and after a fencing delay (watchdog), with optional power fencing. Secrets travel between paired nodes encrypted for the pair and are sealed under each node's own key.
-- **Partial RBAC coverage:** Many operational routes are session-authenticated but lack per-route `RequirePermission` checks
+- **Plain HTTP by default:** until a certificate is activated (Security › Certificates), passwords and session tokens travel unencrypted; use HTTPS or a VPN on untrusted networks
+- **The system disk is not encrypted:** the database, the secrets key and the audit key are on `/persist`; someone with the disk can open the sealed secrets
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
-- **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions
+- **rclone credentials** are stored in rclone's own format in `/etc/dplaneos/rclone.conf` (not sealed)
 - **Docker socket** is accessible to the daemon - containers with host mounts can escalate
-- **LDAP bind password** is stored in PostgreSQL - use a dedicated read-only LDAP account
+- **LDAP bind password** is sealed in PostgreSQL - still use a dedicated read-only LDAP account
 

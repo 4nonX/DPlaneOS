@@ -517,7 +517,14 @@ func parsePoolHealthSummary(statusOutput string) map[string]string {
 // ── Misc helpers ──────────────────────────────────────────────────────────────
 
 // isLocalhostRequest returns true if r.RemoteAddr is a loopback address.
+// isLocalhostRequest: a caller on this host - the daemon's Unix socket
+// (RemoteAddr "" or "@") or loopback TCP. Requests through nginx also come
+// over the socket: the session middleware lets this route through only with
+// the per-boot internal token.
 func isLocalhostRequest(r *http.Request) bool {
+	if r.RemoteAddr == "" || r.RemoteAddr == "@" {
+		return true
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		// If no port (unlikely), treat the whole string as the host.
