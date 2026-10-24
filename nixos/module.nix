@@ -345,12 +345,17 @@ in {
             cache=/etc/zfs/zpool.cache
             shared=/var/lib/dplaneos/shared-pools
             rc=0
-            for pool in $(${zpool} import -c "$cache" 2>/dev/null | ${pkgs.gawk}/bin/awk '$1 == "pool:" { print $2 }'); do
+            # The cache only says which pools are this machine's. Each is
+            # imported from its disks, by GUID: an import from the cache
+            # checks the cache's own record of who used the pool last, which
+            # still names this machine when another system imported the pool
+            # since (the disk labels say who did).
+            while read -r pool guid; do
               if [ -f "$shared" ] && ${pkgs.gnugrep}/bin/grep -qxF -- "$pool" "$shared"; then
                 echo "$pool: pool of a shared storage group, left to its owner's daemon"
                 continue
               fi
-              err=$(${zpool} import -c "$cache" -N "$pool" 2>&1) && continue
+              err=$(${zpool} import -N "$guid" 2>&1) && continue
               # Up to 16.0.0 every machine ran with host ID 0, which ZFS does
               # not record: a pool that was imported when such a machine went
               # down looks like another system's to the same machine with its
@@ -358,11 +363,12 @@ in {
               # this hostname without a host ID. Anything else stays as it is.
               if printf '%s\n' "$err" | ${pkgs.gnugrep}/bin/grep -qF "Last accessed by $(cat /proc/sys/kernel/hostname) (hostid=0) at"; then
                 echo "$pool: last used by this machine before it had its own host ID; importing it"
-                ${zpool} import -c "$cache" -N -f "$pool" && continue
+                ${zpool} import -N -f "$guid" && continue
               fi
               printf '%s\n' "$err" >&2
               rc=1
-            done
+            done < <(${zpool} import -c "$cache" 2>/dev/null \
+              | ${pkgs.gawk}/bin/awk '$1 == "pool:" { name = $2 } $1 == "id:" { print name, $2 }')
             exit $rc
           '';
       };
