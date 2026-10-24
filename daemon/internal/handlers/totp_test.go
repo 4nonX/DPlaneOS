@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"dplaned/internal/security"
+	"encoding/base64"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -188,5 +189,31 @@ func TestTOTPBackupCodeSingleUse(t *testing.T) {
 	}
 	if r := e.verify(t, e.pending(t), e.codes[1]); !r.ok() {
 		t.Errorf("another backup code: %s", r)
+	}
+}
+
+// The setup QR code is drawn by the daemon (the secret never goes to a QR
+// web service) as a PNG data URL, which the page's CSP allows.
+func TestTOTPSetupQRCode(t *testing.T) {
+	db := testDB(t)
+	if err := secrets.Init(filepath.Join(t.TempDir(), "secrets.key")); err != nil {
+		t.Fatal(err)
+	}
+	addUser(t, db, "quinn", "Quinn-Passw0rd", "user", true)
+	r := call(t, NewTOTPHandler(db).HandleTOTPSetup, req{method: "GET", user: "quinn"})
+	if !r.ok() {
+		t.Fatalf("setup: %s", r)
+	}
+	png, _ := r.body["qr_png"].(string)
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(png, prefix) {
+		t.Fatalf("qr_png = %.40q", png)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(png, prefix))
+	if err != nil || !strings.HasPrefix(string(raw), "\x89PNG\r\n\x1a\n") {
+		t.Fatalf("not a PNG: %v", err)
+	}
+	if uri, _ := r.body["otpauth_uri"].(string); !strings.HasPrefix(uri, "otpauth://totp/") {
+		t.Errorf("otpauth_uri = %q", uri)
 	}
 }

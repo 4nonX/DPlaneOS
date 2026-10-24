@@ -11,7 +11,7 @@
  * Strength rules (daemon validatePasswordStrength):
  *   min 8 chars, uppercase, lowercase, digit, special char.
  *
- * GET    /api/auth/totp/setup           → { success, secret, otpauth_uri }
+ * GET    /api/auth/totp/setup           → { success, secret, otpauth_uri, qr_png }
  * POST   /api/auth/totp/setup { code }  → verify+enable
  * DELETE /api/auth/totp/setup           → disable
  * GET    /api/auth/tokens               → { success, tokens: ApiToken[] }
@@ -37,7 +37,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 // Types
 // ---------------------------------------------------------------------------
 
-interface TotpSetupResponse { success: boolean; secret?: string; otpauth_uri?: string; enabled?: boolean }
+interface TotpSetupResponse { success: boolean; secret?: string; otpauth_uri?: string; qr_png?: string; enabled?: boolean }
 interface ApiToken          { id: number | string; name: string; created_at: string; last_used?: string; prefix?: string }
 interface TokensResponse    { success: boolean; tokens: ApiToken[] }
 interface AuditStats        { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
@@ -274,9 +274,9 @@ function PasswordTab() {
 // QR Code renderer
 // ---------------------------------------------------------------------------
 
-function QRImage({ uri }: { uri: string }) {
-  const url = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uri)}`
-  return <img src={url} alt="TOTP QR Code" width={180} height={180}
+// The daemon draws the QR code (a PNG data URL): the secret stays on this machine.
+function QRImage({ png }: { png: string }) {
+  return <img src={png} alt="TOTP QR Code" width={180} height={180}
     style={{ borderRadius: 8, border: '4px solid #fff', display: 'block' }} />
 }
 
@@ -344,7 +344,7 @@ function TOTPTab() {
             {setupData && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-                  {setupData.otpauth_uri ? <QRImage uri={setupData.otpauth_uri} /> : <Icon name="qr_code_2" size={120} style={{ opacity: 0.3 }} />}
+                  {setupData.qr_png ? <QRImage png={setupData.qr_png} /> : <Icon name="qr_code_2" size={120} style={{ opacity: 0.3 }} />}
                 </div>
                 {setupData.secret && (
                   <div style={{ marginBottom: 20 }}>

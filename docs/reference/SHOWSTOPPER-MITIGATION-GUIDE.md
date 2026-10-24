@@ -104,11 +104,11 @@ nix build .#dplaneos-daemon-cgo --print-out-paths       # the daemon the applian
 systemctl cat dplaned | grep -o '/nix/store/[^/]*-dplaneos-daemon-cgo-[^/]*'   # on the NAS
 ```
 
-The same release gives the same store path (Nix hashes every input). `nix build .#iso` builds the installer ISO, and `nix store verify` checks a store path's contents.
+The same release gives the same store path on the same architecture (Nix hashes every input; an x86_64 and an ARM64 node of one release have different store paths). `nix build .#iso` builds the installer ISO, and `nix store verify` checks a store path's contents.
 
 ### Reproducible Builds
 
-Every build comes from the pinned flake with locked inputs (`flake.lock`): all nodes of a release run the same store paths. Nix makes the inputs reproducible; the outputs are not checked bit-for-bit.
+Every build comes from the pinned flake with locked inputs (`flake.lock`): all nodes of a release with the same architecture run the same store paths. Nix makes the inputs reproducible; the outputs are not checked bit-for-bit.
 
 ---
 

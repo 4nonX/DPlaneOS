@@ -323,8 +323,11 @@ in {
     # NixOS imports only the pools of fileSystems and boot.zfs.extraPools, and
     # DPlaneOS uses neither: the pools this machine had imported are in
     # /etc/zfs/zpool.cache. Import them before anything that uses them. The
-    # pools of a shared storage group are imported with cachefile=none, so
-    # their owner's daemon imports them instead (internal/groups/boot.go).
+    # pools of a shared storage group are never imported here, even with a
+    # cache entry (one left from before the pool was shared, or from an
+    # import that was not undone): the daemon lists them in
+    # /var/lib/dplaneos/shared-pools, and only their owner's daemon imports
+    # them (internal/groups/boot.go).
     systemd.services.dplaneos-zfs-import = {
       description = "DPlaneOS: import this machine's ZFS pools";
       wantedBy = [ "zfs-import.target" ];
@@ -333,10 +336,35 @@ in {
       wants    = [ "systemd-udev-settle.service" ];
       unitConfig.DefaultDependencies = false;
       unitConfig.ConditionFileNotEmpty = "/etc/zfs/zpool.cache";
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
       serviceConfig = {
         Type            = "oneshot";
         RemainAfterExit = true;
-        ExecStart       = "${config.boot.zfs.package}/bin/zpool import -c /etc/zfs/zpool.cache -a -N";
+        ExecStart = let zpool = "${config.boot.zfs.package}/bin/zpool"; in
+          pkgs.writeShellScript "dplaneos-zfs-import" ''
+            cache=/etc/zfs/zpool.cache
+            shared=/var/lib/dplaneos/shared-pools
+            rc=0
+            for pool in $(${zpool} import -c "$cache" 2>/dev/null | ${pkgs.gawk}/bin/awk '$1 == "pool:" { print $2 }'); do
+              if [ -f "$shared" ] && ${pkgs.gnugrep}/bin/grep -qxF -- "$pool" "$shared"; then
+                echo "$pool: pool of a shared storage group, left to its owner's daemon"
+                continue
+              fi
+              err=$(${zpool} import -c "$cache" -N "$pool" 2>&1) && continue
+              # Up to 16.0.0 every machine ran with host ID 0, which ZFS does
+              # not record: a pool that was imported when such a machine went
+              # down looks like another system's to the same machine with its
+              # own host ID. Only that case is imported with -f: last used by
+              # this hostname without a host ID. Anything else stays as it is.
+              if printf '%s\n' "$err" | ${pkgs.gnugrep}/bin/grep -qF "Last accessed by $(cat /proc/sys/kernel/hostname) (hostid=0) at"; then
+                echo "$pool: last used by this machine before it had its own host ID; importing it"
+                ${zpool} import -c "$cache" -N -f "$pool" && continue
+              fi
+              printf '%s\n' "$err" >&2
+              rc=1
+            done
+            exit $rc
+          '';
       };
     };
 
@@ -476,7 +504,7 @@ in {
         extraConfig = ''
           add_header X-Frame-Options "SAMEORIGIN" always;
           add_header X-Content-Type-Options "nosniff" always;
-          add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';" always;
+          add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';" always;
           add_header Referrer-Policy "strict-origin-when-cross-origin" always;
           add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
         '';

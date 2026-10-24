@@ -2,6 +2,7 @@ package zfs
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -81,5 +82,37 @@ errors: No known data errors
 	damaged := strings.Replace(clean, "errors: No known data errors", "errors: 64 data errors, use '-v' for a list", 1)
 	if l, m := ScanFinding("tank", damaged); l != "critical" || !strings.Contains(m, "64 data errors") {
 		t.Errorf("damaged: %s %s", l, m)
+	}
+}
+
+// A failed stop is tried again while the pool is still failed.
+func TestPoolMonitorRetriesDockerStop(t *testing.T) {
+	var got []sent
+	SetAlertDispatch(func(l, e, p, m string) { got = append(got, sent{l, e, p, m}) })
+	defer SetAlertDispatch(nil)
+	m := NewPoolMonitor()
+	m.StopDockerOnFailure = true
+	m.listHealth = func(context.Context) (map[string]string, error) {
+		return map[string]string{"tank": "FAULTED"}, nil
+	}
+	calls, fail := 0, true
+	m.stopDocker = func() error {
+		calls++
+		if fail {
+			return errors.New("systemctl: timeout")
+		}
+		return nil
+	}
+	ctx := context.Background()
+	m.Check(ctx)
+	m.Check(ctx)
+	if calls != 2 {
+		t.Fatalf("stop attempts %d, want 2", calls)
+	}
+	fail = false
+	m.Check(ctx)
+	m.Check(ctx) // stopped: not again
+	if calls != 3 || got[len(got)-1].event != "docker.stopped" {
+		t.Errorf("attempts %d, alerts %v", calls, got)
 	}
 }

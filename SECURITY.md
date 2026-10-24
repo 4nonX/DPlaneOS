@@ -50,7 +50,7 @@ DPlaneOS is designed as an internal network appliance. It is not intended to be 
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced per route, with 31 discrete permissions; sensitive operations also require a session that logged in with TOTP (AAL2)
 - **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. Disk operations require `by-id` paths and pass pool-membership checks.
-- **Secrets:** passwords of external services, TOTP secrets and keys are sealed in the database with the node's secrets key (`/var/lib/dplaneos/secrets.key`)
+- **Secrets:** sealed in the database with the node's secrets key (`/var/lib/dplaneos/secrets.key`): the passwords of external services (SMTP, LDAP/AD bind), tokens (Git providers, fleet, Telegram, webhook secrets), the Git SSH keys, TOTP secrets, the OIDC client secret, the SMB password hashes and the cluster's Corosync key. Not sealed, as files readable by root only: the secrets key itself, the audit HMAC key (`/var/lib/dplaneos/audit.key`) and the TLS private keys
 - **Web server:** nginx sends a CSP, `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`; HTTPS once a certificate is activated
 
 For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md).
@@ -61,7 +61,7 @@ For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/T
 - **Plain HTTP by default:** until a certificate is activated (Security › Certificates), passwords and session tokens travel unencrypted; use HTTPS or a VPN on untrusted networks
 - **The system disk is not encrypted:** the database, the secrets key and the audit key are on `/persist`; someone with the disk can open the sealed secrets
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
-- **rclone credentials** are stored in rclone's own format in `/etc/dplaneos/rclone.conf` (not sealed)
+- **rclone credentials** are stored in rclone's own format in `/etc/dplaneos/rclone.conf` (not sealed; owned by root with mode 0600, which the daemon restores after every change)
 - **Docker socket** is accessible to the daemon - containers with host mounts can escalate
 - **LDAP bind password** is sealed in PostgreSQL - still use a dedicated read-only LDAP account
 

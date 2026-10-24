@@ -24,10 +24,9 @@
 #   - Package caches, build artifacts
 #   - Anything not explicitly listed below
 #
-# Boundary rule:
-#   NixOS owns /persist/nixos/ and /persist/ssh/
-#   DPlaneOS daemon owns /persist/dplaneos/
-#   No other service writes to /persist without an entry here.
+# Each entry below is bind-mounted from the same path under /persist
+# (/var/lib/dplaneos from /persist/var/lib/dplaneos, /etc/machine-id from
+# /persist/etc/machine-id). No service writes to /persist without an entry here.
 # ─────────────────────────────────────────────────────────────────────────────
 
 { config, lib, pkgs, ... }:
@@ -50,10 +49,9 @@
     # ── Top-level directories to bind from /persist ──────────────────────
     directories = [
 
-      # ── DPlaneOS daemon state (the boundary: daemon owns this subtree) ─
-      # All DB files, keys, gitops repo live under /persist/dplaneos/
-      # The daemon's -db flag is set to /var/lib/dplaneos/dplaneos.db
-      # which is bind-mounted from /persist/dplaneos/
+      # ── DPlaneOS daemon state ─────────────────────────────────────────
+      # PostgreSQL (pgsql/), the keys, the Git working copy and the other
+      # state of the daemon; from /persist/var/lib/dplaneos
       {
         directory = "/var/lib/dplaneos";
         user      = "root";
@@ -216,16 +214,6 @@
       install -m 0644 "$f" /etc/hostid
     '';
   };
-
-  # ── Create /persist subdirectories on first boot ───────────────────────────
-  # systemd-tmpfiles creates these if they don't exist. Idempotent.
-  systemd.tmpfiles.rules = [
-    "d /persist/dplaneos          0755 root root -"
-    "d /persist/dplaneos/gitops   0755 root root -"
-    "d /persist/log               0755 root root -"
-    "d /persist/ssh               0755 root root -"
-    "d /persist/nixos             0755 root root -"
-  ];
 
   # ── Network settings from the formerly persisted /etc/systemd/network ──────
   # Installs from before this change kept the daemon's 05-dplane-* files in

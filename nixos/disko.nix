@@ -123,14 +123,14 @@ in
           # This partition SURVIVES every reboot and every update.
           # All writable daemon state lives here.
           #
-          # Contents (managed by impermanence.nix + daemon):
-          #   /persist/dplaneos/          : daemon state root
-          #   /persist/postgresql/         : PostgreSQL data
-          #   /persist/dplaneos/audit.key  : HMAC key
-          #   /persist/dplaneos/gitops/    : state.yaml repo checkout
-          #   /persist/nixos/              : NixOS machine config overrides
-          #   /persist/log/                : rotated logs
-          #   /persist/ssh/                : host SSH keys (survive OTA)
+          # Contents: the paths of impermanence.nix, each under the same
+          # path below /persist, for example:
+          #   /persist/var/lib/dplaneos/        : daemon state, PostgreSQL (pgsql/), keys
+          #   /persist/var/lib/docker/          : Docker
+          #   /persist/var/log/dplaneos/        : daemon logs
+          #   /persist/etc/dplaneos/            : daemon configuration files
+          #   /persist/etc/ssh/ssh_host_*_key   : SSH host keys
+          #   /persist/etc/hostid, machine-id   : machine identity
           #
           # Size: 100% = all remaining space (~78 GB on 128 GB NVMe after
           # ESP + 40 GB system). More than sufficient for logs and DB.

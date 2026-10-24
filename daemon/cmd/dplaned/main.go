@@ -666,7 +666,7 @@ func main() {
 	r.Handle("/api/system/diagnostics", permRoute("system", "read", systemHandler.RunDiagnostics)).Methods("POST", "OPTIONS")
 
 	// SMART handlers
-	r.HandleFunc("/api/hardware/smart/cron-hook", handlers.RunSMARTCronHook).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/cron-hook", internalOnly(cronToken, handlers.RunSMARTCronHook)).Methods("POST")
 	r.Handle("/api/hardware/smart/run-now", permRoute("system", "write", handlers.RunSMARTNow)).Methods("POST")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "read", handlers.ListSMARTSchedules)).Methods("GET")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "write", handlers.AddSMARTSchedule)).Methods("POST")
@@ -1260,8 +1260,9 @@ func main() {
 	r.Handle("/api/zfs/pool/importable", permRoute("storage", "read", handlers.HandleListImportablePools)).Methods("GET")
 	r.Handle("/api/zfs/pool/import", permRoute("storage", "write", handlers.HandleImportPool)).Methods("POST")
 
-	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)
-	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")
+	// Disk lifecycle events from the udev helper (the handler requires the
+	// per-boot internal token, whatever session the request carries)
+	r.HandleFunc("/api/internal/disk-event", internalOnly(cronToken, handlers.HandleDiskEvent)).Methods("POST")
 
 	// Files handlers
 	filesHandler := handlers.NewFilesExtendedHandler()
@@ -1299,7 +1300,7 @@ func main() {
 	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.UpdateRsyncSchedule))).Methods("PUT")
 	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteRsyncSchedule))).Methods("DELETE")
 	r.Handle("/api/backup/rsync/schedules/{id}/run", permRoute("storage", "write", http.HandlerFunc(handlers.RunRsyncScheduleNow))).Methods("POST")
-	r.Handle("/api/backup/rsync/cron-hook", http.HandlerFunc(handlers.RsyncCronHook)).Methods("POST")
+	r.HandleFunc("/api/backup/rsync/cron-hook", internalOnly(cronToken, handlers.RsyncCronHook)).Methods("POST")
 
 	// Cloud Sync (rclone-based)
 	cloudSyncHandler := handlers.NewCloudSyncHandler()
@@ -1416,7 +1417,7 @@ func main() {
 	r.Handle("/api/snapshots/schedules", permRoute("storage", "write", snapScheduleHandler.SaveSchedules)).Methods("POST")
 	r.Handle("/api/snapshots/run-now", permRoute("storage", "write", snapScheduleHandler.RunNow)).Methods("POST")
 	// Cron hook: called by generated systemd timer on localhost (no user session, bypassed by sessionMiddleware IP+token check)
-	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
+	r.HandleFunc("/api/zfs/snapshots/cron-hook", internalOnly(cronToken, snapScheduleHandler.RunCronHook)).Methods("POST")
 
 	// Re-install schedule timers from saved schedules. The units embed this
 	// boot's internal token (a fresh one each start), and on NixOS they are
@@ -2035,6 +2036,21 @@ func runRotation(db *sql.DB) {
 		return
 	}
 	log.Printf("MAINTENANCE: Audit log rotation completed successfully")
+}
+
+// internalOnly guards the internal hooks (timers, the udev disk-event
+// helper). The session middleware lets their callers through with the token,
+// but also lets any logged-in user through to them, whatever the role: the
+// hooks have no permission of their own. Refuse every request without this
+// boot's token.
+func internalOnly(token string, fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isInternalCronHook(r, token) {
+			http.Error(w, "Forbidden: internal hook", http.StatusForbidden)
+			return
+		}
+		fn(w, r)
+	}
 }
 
 // internalTokenFile holds this boot's internal hook token for local

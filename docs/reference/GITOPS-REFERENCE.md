@@ -338,7 +338,7 @@ Each resource in both desired and live state is compared and assigned a `DiffIte
 | `MODIFY` | Resource exists in both but with different properties. Will be updated. |
 | `DELETE` | Resource exists in live state but not in desired state (and `ignore_extraneous` is false). Will be removed. |
 | `NOP` | Resource matches exactly. No action needed. |
-| `BLOCKED` | Change is potentially destructive (pool removal, deletion of a dataset that holds files, snapshots or children, removal of a share with connected clients). Requires explicit approval; a dataset or pool that holds anything is not destroyed even then. |
+| `BLOCKED` | Change is potentially destructive (pool removal, deletion of a dataset that holds files, snapshots or children, removal of a share with connected clients). Never executed, approved or not: the apply fails with the reason (see below). |
 | `MANUAL` | Change cannot be automated (pool shrink, removing a log/cache device from a running pool). Shown in UI for operator action. |
 | `AMBIGUOUS` | Reconciler cannot determine safe intent (e.g., same dataset name, different pool). Requires manual resolution. |
 

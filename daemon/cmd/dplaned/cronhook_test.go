@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -39,5 +40,34 @@ func TestIsInternalCronHook(t *testing.T) {
 	r.RemoteAddr = "@"
 	if isInternalCronHook(r, "") {
 		t.Error("empty daemon token must never match")
+	}
+}
+
+// A logged-in user of any role reaches the hooks through the session
+// middleware; internalOnly refuses them without the token.
+func TestInternalOnly(t *testing.T) {
+	const tok = "abc123"
+	called := false
+	h := internalOnly(tok, func(w http.ResponseWriter, r *http.Request) { called = true })
+	for _, c := range []struct {
+		name, remote, token string
+		want                int
+	}{
+		{"session through nginx, no token", "@", "", http.StatusForbidden},
+		{"wrong token", "@", "nope", http.StatusForbidden},
+		{"timer with the token", "@", tok, http.StatusOK},
+	} {
+		called = false
+		r := httptest.NewRequest("POST", "/api/zfs/snapshots/cron-hook", nil)
+		r.RemoteAddr = c.remote
+		r.Header.Set("X-Session-ID", "a-viewer-session")
+		if c.token != "" {
+			r.Header.Set("X-Internal-Token", c.token)
+		}
+		w := httptest.NewRecorder()
+		h(w, r)
+		if w.Code != c.want || called != (c.want == http.StatusOK) {
+			t.Errorf("%s: status %d called %v", c.name, w.Code, called)
+		}
 	}
 }

@@ -140,7 +140,8 @@ The live ISO does not install. Boot the installer ISO (`dplaneos-v<version>-inst
 If your pools aren't showing up:
 1. Verify drives are connected and detected: `lsblk`
 2. Check auto-import logs: `journalctl -u dplane-zfs-auto-import`
-3. Manually import: `zpool import -a`
+3. `zpool import` lists the pools found and why one was not imported. The live system does not force an import: a pool that another system (the installed system, a cluster node) used last without exporting it stays as it is, because importing a pool on two systems at once can destroy it. When that system is really off, import it with Storage › ZFS Pools → **Import Pool** and confirm *the other system is powered off*.
+4. The live system exports its pools when it shuts down, so the installed system imports them again at its next boot.
 
 ### "Web UI not responding"
 

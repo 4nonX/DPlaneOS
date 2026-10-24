@@ -14,7 +14,10 @@
 #      the API on a second disk is there again after a reboot; its journal
 #      (read from the installer afterwards) shows no failed unit, and the
 #      machine has its own ZFS host ID
-#   4. a disk smaller than the layout needs and a weak password are refused
+#   4. the boot import: it leaves a pool listed as a shared storage group's
+#      alone; a pool last used without a host ID (16.0.0 and older) is
+#      imported only when this machine's hostname used it
+#   5. a disk smaller than the layout needs and a weak password are refused
 #
 # Run: nix build .#checks.x86_64-linux.installer -L
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +42,11 @@ pkgs.testers.nixosTest {
     virtualisation.useEFIBoot = true;
     boot.loader.systemd-boot.enable = true;
     boot.loader.efi.canTouchEfiVariables = true;
-    boot.supportedFilesystems = [ "vfat" "ext4" ];
+    # ZFS with host ID 0, as DPlaneOS up to 16.0.0: plays such a machine
+    # that last used the pool (the host ID transition below).
+    boot.supportedFilesystems = [ "vfat" "ext4" "zfs" ];
+    networking.hostId = "00000000";
+    boot.zfs.forceImportRoot = false;
     # The system to install, in the installer's store and Nix database (as
     # in the ISO's squashfs).
     virtualisation.additionalPaths = [ targetSystem regInfo ];
@@ -188,5 +195,61 @@ pkgs.testers.nixosTest {
         persisted = installer.succeed("od -An -tx4 /mnt/persist/etc/hostid | tr -d ' \n'")
         active = installer.succeed("od -An -tx4 /mnt/etc/hostid | tr -d ' \n'")
         assert persisted == active and persisted not in ("", "00000000"), f"host ID: persist {persisted!r}, /etc {active!r}"
+
+    with subtest("the boot leaves the pools of shared storage groups to their owner"):
+        # tank still has its cache entry; listed as a shared group's pool
+        # (as the daemon writes it), the boot must not import it.
+        installer.succeed("umount -R /mnt")
+        installer.succeed("mount /dev/disk/by-partlabel/dplaneos-persist /mnt")
+        installer.succeed("echo tank > /mnt/var/lib/dplaneos/shared-pools && sync && umount /mnt")
+        installer.shutdown()
+        boot_installed()
+        h = login()
+        found = pools(h)
+        assert "tank" not in found, f"the boot imported a shared group's pool: {found}"
+        target.send_monitor_command("system_powerdown")
+        target.wait_for_shutdown()
+
+    def last_used_without_host_id(hostname):
+        # The installer, with host ID 0 and the given hostname, imports tank
+        # and goes down without exporting it (a machine on 16.0.0 that lost
+        # power or was updated with the pool imported).
+        installer.start()
+        installer.wait_for_unit("multi-user.target")
+        # tank is no longer a shared group's pool (the previous subtest)
+        installer.succeed("mount /dev/disk/by-partlabel/dplaneos-persist /mnt")
+        installer.succeed("rm -f /mnt/var/lib/dplaneos/shared-pools && sync && umount /mnt")
+        installer.succeed(f"echo {hostname} > /proc/sys/kernel/hostname")
+        installer.succeed("zpool import -f -N -o cachefile=none -d /dev tank && zpool sync tank")
+        installer.crash()
+
+    def import_log():
+        # The installed system has no test shell: the installer reads the
+        # import unit's log of its last boot from its (persistent) journal.
+        installer.start()
+        installer.wait_for_unit("multi-user.target")
+        installer.succeed("mount -o ro /dev/disk/by-partlabel/dplaneos-system /mnt")
+        log = installer.succeed("journalctl -D /mnt/var/log/journal -b -u dplaneos-zfs-import --no-pager -o cat")
+        installer.succeed("umount /mnt")
+        installer.shutdown()
+        return log
+
+    with subtest("a pool last used before the machine had its own host ID"):
+        last_used_without_host_id("otherbox")
+        boot_installed()
+        found = pools(login())
+        target.send_monitor_command("system_powerdown")
+        target.wait_for_shutdown()
+        log = import_log()
+        assert "tank" not in found, f"imported a pool another machine (no host ID) used last: {found}\n{log}"
+        assert "Last accessed by otherbox" in log, f"tank was not refused for the other machine's use:\n{log}"
+
+        last_used_without_host_id("dplaneos")
+        boot_installed()
+        found = pools(login())
+        target.send_monitor_command("system_powerdown")
+        target.wait_for_shutdown()
+        log = import_log()
+        assert "tank" in found, f"the pool this machine used before it had its own host ID is not imported: {found}\n{log}"
   '';
 }

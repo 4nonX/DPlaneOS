@@ -7,14 +7,15 @@
 # What this does:
 #   1. Runs early in boot (after zfs module loads, before services start)
 #   2. Scans all block devices for ZFS pool metadata
-#   3. Imports any pools found with standard settings
+#   3. Imports the pools that are free to import: exported, or last used by
+#      this live system. A pool another system used last and did not export
+#      (the installed system, a cluster node on shared disks) is not forced:
+#      importing it twice can destroy it. The log names it; when that system
+#      is really off, `zpool import -f <pool>` takes it over.
 #   4. Mounts all imported datasets
 #   5. Logs results to journalctl for debugging
-#
-# What this does NOT do:
-#   - Does not create new pools (user must do via daemon UI or CLI)
-#   - Does not modify pool properties (read-write import only)
-#   - Does not handle pool conflicts (will fail gracefully if pool already imported)
+#   6. At shutdown, exports the pools, so the installed system (or another
+#      machine) imports them again without a force
 
 { config, lib, pkgs, ... }:
 
@@ -60,18 +61,18 @@
       DEVICES=$(lsblk -nd -o NAME,SIZE,TYPE 2>/dev/null | grep disk || echo "(no disks found)")
       echo "$DEVICES"
 
-      # Step 2: Try to import all pools
+      # Step 2: import the pools that are free to import
       # -a: import all pools found
       # -N: don't mount (we do it separately)
-      # -f: force import (in case of soft errors)
+      # no -f: a pool in use by (or last used by) another system stays as it is
       echo ""
       echo "[2/4] Importing ZFS pools..."
-      if zpool import -a -N -f 2>&1; then
+      if zpool import -a -N 2>&1; then
         IMPORT_STATUS="OK"
         echo "✓ Pool import succeeded"
       else
         IMPORT_STATUS="PARTIAL"
-        echo "⚠ Pool import had errors (common if no pools present)"
+        echo "⚠ Some pools were not imported (above: a pool another system used last is not forced)"
       fi
 
       # Step 3: List imported pools (verify success)
@@ -104,6 +105,9 @@
       echo ""
     '';
 
+    # At shutdown (dplaned and Docker have stopped: they start after this)
+    preStop = "${config.boot.zfs.package}/bin/zpool export -a || true";
+
     # Explicitly set TERM for better output
     environment.TERM = "xterm-256color";
 
@@ -112,18 +116,4 @@
     serviceConfig.StandardOutput = "journal";
     serviceConfig.StandardError = "journal";
   };
-
-  # ── Optional: systemd timer to re-scan for pools (in case drives plugged in later)
-  # For MVP, disabled. Can be enabled in future for hot-swap support.
-  # systemd.timers.dplane-zfs-rescan = {
-  #   description = "Periodically rescan for new ZFS pools";
-  #   timerConfig.OnBootSec = "10min";
-  #   timerConfig.OnUnitActiveSec = "30min";
-  #   wantedBy = [ "timers.target" ];
-  # };
-  #
-  # systemd.services.dplane-zfs-rescan = {
-  #   description = "ZFS pool rescan";
-  #   script = ''...similar to above...'';
-  # };
 }

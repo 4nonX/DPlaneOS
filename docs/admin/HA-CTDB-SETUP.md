@@ -42,10 +42,7 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
    # Both nodes must see the same pool
    ```
 
-4. **Sufficient disk space** on the shared/replicated pool for CTDB database
-   ```bash
-   zfs create tank/ctdb  # At least 1GB recommended
-   ```
+4. **Sufficient disk space** on the shared/replicated pool for the CTDB database (at least 1 GB; the dataset is created in Step 1)
 
 5. **Network connectivity** between nodes on CTDB port 4379
    ```bash

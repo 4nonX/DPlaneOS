@@ -455,7 +455,8 @@ func rsyncArgs(opts, src, dst string) ([]string, error) {
 }
 
 // POST /api/backup/rsync/cron-hook
-// Called by systemd timers on localhost only (enforced by sessionMiddleware).
+// Called by systemd timers on this host, with the per-boot internal token
+// (internalOnly in main.go).
 func RsyncCronHook(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`

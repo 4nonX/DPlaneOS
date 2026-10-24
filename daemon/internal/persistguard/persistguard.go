@@ -1,14 +1,14 @@
 //go:build linux
 
-// Package persistguard monitors durable storage (/persist) and proactively trims
-// logs so the journal and PostgreSQL cannot fill the partition.
+// Package persistguard monitors durable storage (/persist) and truncates the
+// largest log files on it (the daemon's and Samba's) before the partition
+// fills up: PostgreSQL and the daemon's state are on the same partition. The
+// systemd journal is on the system disk and is not touched here.
 package persistguard
 
 import (
-	"context"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"syscall"
@@ -16,10 +16,9 @@ import (
 )
 
 const (
-	checkEvery    = 2 * time.Minute
-	warnPct       = 80.0
-	criticalPct   = 88.0
-	journalVacuum = "256M"
+	checkEvery  = 2 * time.Minute
+	warnPct     = 80.0
+	criticalPct = 88.0
 )
 
 // Start launches a background loop. Call once from main.
@@ -53,24 +52,10 @@ func runOnce() {
 	log.Printf("persistguard: /persist %.1f%% full - running log hygiene", usedPct)
 
 	if usedPct >= criticalPct {
-		vacuumJournal()
 		truncateLargestN("/var/log/dplaneos", 6)
-		truncateLargestN("/persist/log", 6)
 		truncateLargestN("/var/log/samba", 4)
 	} else {
-		vacuumJournal()
 		truncateLargestN("/var/log/dplaneos", 3)
-		truncateLargestN("/persist/log", 3)
-	}
-}
-
-func vacuumJournal() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "journalctl", "--vacuum-size="+journalVacuum)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("persistguard: journalctl vacuum: %v %s", err, string(out))
 	}
 }
 

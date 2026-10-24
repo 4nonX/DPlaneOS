@@ -33,6 +33,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net"
@@ -69,11 +70,11 @@ type diskEventRequest struct {
 }
 
 // HandleDiskEvent handles POST /api/internal/disk-event.
-// It validates that the caller is localhost before processing.
+// Only the local udev helper may call it (isInternalCaller), whatever session
+// the request carries.
 func HandleDiskEvent(w http.ResponseWriter, r *http.Request) {
-	// ── Localhost-only guard ──────────────────────────────────────────────────
-	if !isLocalhostRequest(r) {
-		respondErrorSimple(w, "forbidden: disk-event is localhost-only", http.StatusForbidden)
+	if !isInternalCaller(r) {
+		respondErrorSimple(w, "forbidden: disk-event is for the local udev helper only", http.StatusForbidden)
 		return
 	}
 
@@ -516,11 +517,18 @@ func parsePoolHealthSummary(statusOutput string) map[string]string {
 
 // ── Misc helpers ──────────────────────────────────────────────────────────────
 
-// isLocalhostRequest returns true if r.RemoteAddr is a loopback address.
-// isLocalhostRequest: a caller on this host - the daemon's Unix socket
-// (RemoteAddr "" or "@") or loopback TCP. Requests through nginx also come
-// over the socket: the session middleware lets this route through only with
-// the per-boot internal token.
+// isInternalCaller: the udev disk-event helper on this host. Requests through
+// nginx also arrive over the daemon's Unix socket, with a user's session, so
+// being local is not enough: the caller must send this boot's internal token
+// (/run/dplaneos/internal-token, readable by root only).
+func isInternalCaller(r *http.Request) bool {
+	got := r.Header.Get("X-Internal-Token")
+	return cronToken != "" && subtle.ConstantTimeCompare([]byte(got), []byte(cronToken)) == 1 &&
+		isLocalhostRequest(r)
+}
+
+// isLocalhostRequest: the daemon's Unix socket (RemoteAddr "" or "@") or
+// loopback TCP.
 func isLocalhostRequest(r *http.Request) bool {
 	if r.RemoteAddr == "" || r.RemoteAddr == "@" {
 		return true

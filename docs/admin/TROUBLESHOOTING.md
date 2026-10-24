@@ -583,7 +583,7 @@ This provides a menu-driven interface for: service restart, database checks, pas
 DPlaneOS runs on NixOS. A full reset means reinstalling the OS from the ISO and then restoring configuration from Git and data from ZFS pools:
 
 1. Boot from the DPlaneOS ISO and reinstall to the OS disk
-2. After first boot, import data pools: `sudo zpool import -a`
+2. After first boot, import the data pools: Storage › ZFS Pools → **Import Pool** (a pool the old installation did not export is marked *used by another system*: confirm that the old system is off)
 3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
 4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once); or apply a `state.yaml` file directly with `sudo dplaned -db-dsn "<DSN>" -gitops-state <file> -apply`
 5. Restore the configuration: Settings → Maintenance → Stored backups (the daily copy on the pool), see [BACKUP-REPLICATION.md](BACKUP-REPLICATION.md#configuration-backup)

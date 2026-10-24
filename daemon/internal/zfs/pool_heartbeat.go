@@ -81,10 +81,11 @@ type PoolMonitor struct {
 	listHealth func(ctx context.Context) (map[string]string, error)
 	stopDocker func() error
 
-	mu            sync.Mutex
-	last          map[string]string // pool → last health seen
-	dockerStopped bool
-	zpoolStuck    bool
+	mu               sync.Mutex
+	last             map[string]string // pool → last health seen
+	dockerStopped    bool
+	dockerStopFailed bool // the last stop failed; tried again
+	zpoolStuck       bool
 }
 
 // NewPoolMonitor returns a monitor using the zpool command.
@@ -186,18 +187,27 @@ func (m *PoolMonitor) Check(ctx context.Context) {
 			delete(m.last, p)
 		}
 	}
+	// A stop that failed is tried again at the next check while the pool is
+	// still failed (logged once).
 	if anyCritical && m.StopDockerOnFailure && !m.dockerStopped {
-		m.dockerStopped = true
-		log.Printf("CRITICAL: a pool failed - stopping Docker so containers do not write to the root filesystem")
+		if !m.dockerStopFailed {
+			log.Printf("CRITICAL: a pool failed - stopping Docker so containers do not write to the root filesystem")
+		}
 		if err := m.stopDocker(); err != nil {
-			log.Printf("ERROR: stopping Docker: %v", err)
+			if !m.dockerStopFailed {
+				log.Printf("ERROR: stopping Docker: %v (trying again at every check)", err)
+			}
+			m.dockerStopFailed = true
 		} else {
+			m.dockerStopped = true
+			m.dockerStopFailed = false
 			dispatch("critical", "docker.stopped", "docker",
 				"Docker was stopped because a pool failed; start it again when the pool is healthy.")
 		}
 	}
 	if !anyCritical {
 		m.dockerStopped = false
+		m.dockerStopFailed = false
 	}
 }
 

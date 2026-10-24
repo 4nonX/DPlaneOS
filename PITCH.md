@@ -32,7 +32,7 @@ DPlaneOS is not a one-directional deploy system. A change made in the web interf
 
 The first time the repository is connected, the node writes its whole configuration to it: the baseline. From then on the repository and the node stay in step in both directions, on every node of a cluster, each scope written by exactly one node.
 
-A change made outside the web interface (a shell, another tool) is found by the configuration history within five minutes and committed like any other change, or, with self-heal on, replaced by the repository's version. Drift cannot hide.
+A change made outside the web interface (a shell, another tool) is found by the configuration history within five minutes and committed like any other change, or, with self-heal on, replaced by the repository's version without asking. Both the outside change and its replacement stay in System › Change History, where datasets, shares, NFS exports, stacks, users, groups, replication and SMART tasks and settings can be rolled back to the outside version. Drift cannot hide.
 
 ---
 

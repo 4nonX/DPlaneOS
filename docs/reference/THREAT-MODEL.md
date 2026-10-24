@@ -93,7 +93,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 **Mitigation**:
 - `sessionMiddleware` runs globally on all routes via `r.Use()`
-- Public exceptions are explicitly allowlisted in the middleware, each with its own check: `/health`, `/metrics`; login, logout, auth check, TOTP verify and the OIDC flow; `/api/csrf`; `/api/system/status` and `/api/system/health`; `/api/system/setup-admin` (refused once an admin password is set); share links (`/api/s/`); the peer API between paired nodes (`/api/config/sync/peer/`, authenticated by the pair's certificate and secret); Git push notifications (signed); quorum enrolment and voter endpoints (join codes); the localhost-only disk event hook
+- Public exceptions are explicitly allowlisted in the middleware, each with its own check: `/health`, `/metrics`; login, logout, auth check, TOTP verify and the OIDC flow; `/api/csrf`; `/api/system/status` and `/api/system/health`; `/api/system/setup-admin` (refused once an admin password is set); share links (`/api/s/`); the peer API between paired nodes (`/api/config/sync/peer/`, authenticated by the pair's certificate and secret); Git push notifications (signed); quorum enrolment and voter endpoints (join codes); the internal hooks of the timers (snapshots, SMART, rsync) and of the udev disk-event helper (a local caller with this boot's internal token, which only root can read: a request through the web server is refused even with a session)
 - All other routes - including all ZFS, Docker, system, and RBAC routes - require a valid `X-Session-ID` header
 - Session validation: token format check + DB lookup + username-header match; fail-closed (DB error → 401)
 - TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` - all other routes reject it
@@ -134,7 +134,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 **Vector**: Stored XSS via file names, share names, alert titles, or other server-sourced strings rendered in the UI.
 
 **Mitigation**:
-- nginx sends a CSP on every response: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';`, plus `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`
+- nginx sends a CSP on every response: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';`, plus `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`. Images may come from HTTPS sites: container icons can be remote URLs (`dplaneos.icon` label). The 2FA QR code is drawn by the daemon; the TOTP secret never leaves the machine.
 - API responses are JSON, not rendered HTML
 - The web interface is React, which escapes every value it renders; it does not set `innerHTML`
 

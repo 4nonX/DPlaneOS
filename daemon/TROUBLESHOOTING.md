@@ -19,7 +19,7 @@ What the daemon does when a part of the system fails, and where to look. For ste
 ## A pool fails or is degraded
 
 - DEGRADED: alert `pool.degraded`, the pool keeps serving.
-- FAULTED, UNAVAIL, SUSPENDED or REMOVED: alert `pool.critical`, and Docker is stopped so that containers do not write into the empty mountpoint folders on the system disk. Bring the pool back (`zpool status`, replace the disk), then start Docker again (`systemctl start docker`).
+- FAULTED, UNAVAIL, SUSPENDED or REMOVED: alert `pool.critical`, and Docker is stopped so that containers do not write into the empty mountpoint folders on the system disk (if `systemctl stop docker` fails, the daemon tries again at every check; `docker.stopped` is sent once it is stopped). If the health of the pools cannot be read, the alert says so and Docker keeps running. Bring the pool back (`zpool status`, replace the disk), then start Docker again (`systemctl start docker`).
 - A disk that returns (hot-swap) is brought back online, or its exported pool is imported again when the disk was last seen in that pool on this machine.
 
 ## The system disk fills up

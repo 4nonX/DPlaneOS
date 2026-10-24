@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"database/sql"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"dplaned/internal/secrets"
 	"dplaned/internal/security"
 	"golang.org/x/crypto/bcrypt"
+	"rsc.io/qr"
 )
 
 // TOTPHandler manages TOTP-based two-factor authentication
@@ -239,14 +241,21 @@ func (h *TOTPHandler) getTOTPSetup(w http.ResponseWriter, userID int, username s
 			}
 			secret = plain
 		}
-		// Build otpauth:// URI for QR code
+		// Build otpauth:// URI and its QR code. The QR code is drawn here:
+		// the secret must not leave this machine (no QR web service).
 		otpauthURI := buildOTPAuthURI(username, secret)
-		respondJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"success":     true,
 			"enabled":     false,
 			"secret":      secret,
 			"otpauth_uri": otpauthURI,
-		})
+		}
+		if code, qrErr := qr.Encode(otpauthURI, qr.M); qrErr == nil {
+			resp["qr_png"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
+		} else {
+			log.Printf("TOTP QR: %v", qrErr)
+		}
+		respondJSON(w, http.StatusOK, resp)
 		return
 	}
 

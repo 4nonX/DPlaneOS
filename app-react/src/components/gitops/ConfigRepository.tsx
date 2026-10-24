@@ -322,7 +322,7 @@ function SettingsForm({ initial, onSaved }: { initial: GitSettings; onSaved: () 
           Also delete what the repository deletes (off: deletions wait for approval)</label>
         <label style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={s.self_heal} onChange={e => set('self_heal', e.target.checked)} />
           Undo changes made outside the web interface (shell, other tools) instead of committing them</label>
-        <span style={label}>A commit that would remove every resource of a kind is always held, and a failed apply holds the scope at its last good commit. Nothing is ever reverted automatically.</span>
+        <span style={label}>A commit that would remove every resource of a kind is always held, and a failed apply holds the scope at its last good commit; a failed apply is never rolled back automatically.</span>
       </section>
 
       <section style={field}>

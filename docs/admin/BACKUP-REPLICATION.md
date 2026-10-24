@@ -360,7 +360,7 @@ An installed system is built from `/etc/nixos/flake.nix` (the DPlaneOS release) 
 ### Boot disk failure (no data loss)
 
 1. Boot from DPlaneOS ISO and install to replacement boot disk
-2. After first boot, import data pools: `zpool import -a`
+2. After first boot, import the data pools: Storage › ZFS Pools → **Import Pool** (a pool the old installation did not export is marked *used by another system*: confirm that the old system is off)
 3. Settings → Maintenance → Stored backups: restore the newest backup from the pool (or upload a downloaded one)
 4. If you keep the configuration in Git (GitOps): System › Git › Configuration repository, then **Apply** the changes the first check lists
 

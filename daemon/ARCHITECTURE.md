@@ -29,7 +29,7 @@ They monitor and log. If the bootstrap fails, the daemon logs `hardening phases 
 |---|---|---|---|
 | Disk (`/persist`) | 90 % | 95 % | 98 % |
 | Daemon memory | | 85 % | 95 % |
-| File descriptors | | | 90 % |
+| File descriptors | | 80 % | 90 % |
 
 Crossing a level is logged, a critical level is also written to the event log (`resource_critical`), and the status appears in `/api/health` (subsystem `resources`). The watcher does not refuse requests. The daemon's hard memory limit is systemd's `MemoryMax` (`services.dplaneos.memoryMax`, 1 GB by default); pool capacity has its own alerts at 80, 90 and 95 % (see [ALERTS.md](../docs/admin/ALERTS.md)).
 
@@ -60,7 +60,7 @@ The protections that keep data and configuration safe are not in this framework 
 - **Power loss:** state files are written atomically and synced (`internal/fsutil.WriteFileDurable`); configuration changes are recorded in the change history (System › Change History) and can be undone per resource.
 - **Stacks:** one operation per stack (`internal/stacklock`); a stack update rolls back to the previous images when a service does not come up.
 - **Updates:** a new NixOS generation, checked after the reboot and rolled back when the check fails (`nixos/ota-module.nix`).
-- **Pools at boot:** a pool that is not ONLINE keeps the daemon waiting (`dplaneos-zfs-gate`, up to 120 s); a pool that fails later stops Docker, so containers never write into empty mountpoints.
+- **Pools at boot:** a pool that is not ONLINE keeps the daemon waiting (`dplaneos-zfs-gate`, up to 120 s); when a pool fails later (FAULTED, UNAVAIL, SUSPENDED, REMOVED), the daemon stops Docker, so containers do not write into empty mountpoints; a stop that fails is tried again at every check (30 s). If the pool health cannot be read at all (a hung `zpool`), the daemon alerts (`pool.critical`) but cannot tell whether a pool failed and leaves Docker running.
 - **Clusters:** quorum, epochs, watchdog self-fencing, ZFS multihost, SCSI-3 PR and power fencing (see [HIGH-AVAILABILITY.md](../docs/admin/HIGH-AVAILABILITY.md)).
 
 ---

@@ -130,7 +130,7 @@ sequenceDiagram
 flowchart TD
     A["Physical disk connected"] --> B["udev rule (services.udev.extraRules, module.nix)"]
     B --> C["dplaneos-disk-event (transient unit via systemd-run)"]
-    C --> D["POST /api/internal/disk-event\n(localhost only)"]
+    C --> D["POST /api/internal/disk-event\n(local, with the per-boot internal token)"]
     D --> E["Enrich device\n(by-id, WWN, size, type, temp)"]
     E --> F["Upsert disk registry (PostgreSQL)"]
     F --> G["Broadcast diskAdded WS event"]

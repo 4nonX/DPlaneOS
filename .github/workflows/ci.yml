@@ -1186,6 +1186,7 @@ jobs:
           syft scan "$AMD64" -o spdx-json="${AMD64}.sbom.json"
           syft scan "$ARM64" -o spdx-json="${ARM64}.sbom.json"
 
+      # Installer and live ISOs (artifacts iso-amd64, iso-arm64, iso-live-*)
       - name: Download ISO artifacts from build jobs
         uses: actions/download-artifact@v4
         with:
@@ -1200,27 +1201,11 @@ jobs:
           merge-multiple: true
           path: witness-artifacts
 
-      - name: Download live ISO artifacts from build jobs
-        uses: actions/download-artifact@v4
-        with:
-          pattern: iso-live-*
-          merge-multiple: true
-          path: iso-live-artifacts
-
-      - name: Sign ISOs (installer)
+      - name: Sign ISOs
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           for ISO in iso-artifacts/*.iso; do
-            [ -f "$ISO" ] || continue
-            cosign sign-blob --yes "$ISO" --bundle "${ISO}.bundle"
-          done
-
-      - name: Sign ISOs (live boot)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          for ISO in iso-live-artifacts/*.iso; do
             [ -f "$ISO" ] || continue
             cosign sign-blob --yes "$ISO" --bundle "${ISO}.bundle"
           done
@@ -1286,15 +1271,10 @@ jobs:
             iso-artifacts/*.sha256
             iso-artifacts/*.bundle
             iso-artifacts/*.sbom.json
-            iso-live-x86_64/*.iso
-            iso-live-x86_64/*.sha256
-            iso-live-x86_64/*.sbom.json
-            iso-live-arm64/*.iso
-            iso-live-arm64/*.sha256
-            iso-live-arm64/*.sbom.json
           draft: true
           prerelease: false
           make_latest: false
+          fail_on_unmatched_files: true  # a pattern that matches nothing is a broken release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

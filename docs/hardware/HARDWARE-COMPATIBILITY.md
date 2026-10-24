@@ -79,17 +79,6 @@ The ZFS ARC is capped at 16 GB (kernel parameter `zfs.zfs_arc_max`). System › 
 
 `fs.inotify.max_user_watches` is 524288 (file-watching apps like Plex and Syncthing need many); System › Inotify Watches shows how many are in use.
 
------|-----------|-----------------|
-| 2 GB | 512 MB | 65K |
-| 4 GB | 1 GB | 131K |
-| 8 GB | 2 GB | 262K |
-| 16 GB | 4 GB | 524K |
-| 32 GB | 8 GB | 1M |
-| 64 GB | 16 GB | 1M |
-| 128 GB+ | 32 GB | 1M |
-
-On virtualised systems, ARC is reduced by 25% and inotify by 50%.
-
 ---
 
 ## Storage

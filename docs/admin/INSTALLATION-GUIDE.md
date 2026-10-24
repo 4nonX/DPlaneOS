@@ -141,7 +141,7 @@ HTTPS is configured in the web interface under Security › Certificates: reques
 
 ### Firewall
 
-The firewall is on. It opens TCP 80 and 443 for the web interface (`services.dplaneos.openFirewall`), 22 for SSH, and the ports of the services that are enabled (SMB 139/445 and WS-Discovery 5357, NFS 2049, and 5403 for a cluster's third vote). Rules from the Firewall page (Security › Firewall) apply on top: allow or deny by port, protocol and source. NixOS settings of your own go in `/etc/nixos/local.nix` (see [Updates](OTA-UPDATES.md)).
+The firewall is on. It opens TCP 80 and 443 for the web interface (`services.dplaneos.openFirewall`), 22 for SSH, and the ports of the services that are enabled (SMB 139/445 and WS-Discovery 5357, NFS 2049, and for a cluster UDP 5405 between its nodes (Corosync) and TCP 5403 for its third vote). Rules from the Firewall page (Security › Firewall) apply on top: allow or deny by port, protocol and source. NixOS settings of your own go in `/etc/nixos/local.nix` (see [Updates](OTA-UPDATES.md)).
 
 ---
 
@@ -167,11 +167,7 @@ To go back by hand after an update, see [Updates](OTA-UPDATES.md#going-back-by-h
 
 There is no partial uninstall path. DPlaneOS is the OS. To remove it, reinstall a different operating system on the boot disk.
 
-ZFS data pools on separate disks are not affected by reinstalling the boot disk. Import them after reinstalling:
-
-```bash
-zpool import -a
-```
+ZFS data pools on separate disks are not affected by reinstalling the boot disk. Import them after reinstalling: Storage › ZFS Pools → **Import Pool**. A pool the old installation did not export is marked *used by another system*; confirm that the old system is off to import it. From then on the pools are imported at every boot.
 
 ---
 
@@ -218,9 +214,10 @@ curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health   # test d
 ### ZFS pools not visible
 
 ```bash
-zpool list          # check pool status
-zpool import -a     # import any un-imported pools
-sudo systemctl restart dplaned
+zpool list          # the imported pools
+zpool import        # the pools found that are not imported, and why
 ```
+
+Import them with Storage › ZFS Pools → **Import Pool**. Pools are imported at boot when this machine had imported them (`dplaneos-zfs-import`, see its journal: `journalctl -b -u dplaneos-zfs-import`); the pools of a shared storage group are imported by their owner's daemon.
 
 See [Troubleshooting Guide](TROUBLESHOOTING.md) for a full reference.

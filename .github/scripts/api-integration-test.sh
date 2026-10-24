@@ -525,10 +525,13 @@ OLD_TOKEN_RESP=$(curl -s -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-ho
 echo "$OLD_TOKEN_RESP" > /tmp/last_resp.json
 echo "$OLD_TOKEN_RESP" | grep -qiE "Unauthorized|401" && ok "Security: Hardcoded token rejected (per-boot rotation active)" || fail "Security: Hardcoded token should be rejected after v12.2.0"
 
-# The cron hook must still be reachable via an authenticated session.
+# The internal hooks are for the timers and the udev helper only: a logged-in
+# session (of any role) without this boot's token is refused.
 CRON_RESP=$(api POST /api/zfs/snapshots/cron-hook "{\"dataset\":\"testpool\",\"prefix\":\"ci-test\",\"retention\":1}")
 echo "$CRON_RESP" > /tmp/last_resp.json
-echo "$CRON_RESP" | grep -q "success\":true" && ok "Security: Cron hook accessible via authenticated session" || fail "Security: Cron hook via authenticated session FAILED"
+echo "$CRON_RESP" | grep -q "Forbidden: internal hook" && ok "Security: Cron hook refused to a session without the internal token" || fail "Security: Cron hook reachable with a session"
+DISK_RESP=$(api POST /api/internal/disk-event "{\"action\":\"added\",\"device\":\"/dev/sda\"}")
+echo "$DISK_RESP" | grep -q "Forbidden: internal hook" && ok "Security: Disk event refused to a session without the internal token" || fail "Security: Disk event reachable with a session"
 
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
 echo "$INJECT" | grep -qiE "Forbidden|not allowed|success\":false" && ok "Security: Injection blocked" || fail "Security: Injection NOT blocked"

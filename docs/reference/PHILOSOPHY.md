@@ -81,7 +81,7 @@ This separation is why updates are safe: the OS can be replaced atomically by a 
 
 Data on ZFS pools is the most valuable thing the system holds. The architecture reflects this:
 
-**ZFS pools are independent of the OS.** Data disks are entirely separate from the boot disk. A complete boot disk failure - including reinstalling DPlaneOS from scratch - does not affect pool data. After reinstall, `zpool import -a`.
+**ZFS pools are independent of the OS.** Data disks are entirely separate from the boot disk. A complete boot disk failure - including reinstalling DPlaneOS from scratch - does not affect pool data. After reinstall, import the pools (Storage › ZFS Pools → **Import Pool**); from then on they are imported at every boot.
 
 **State lives apart from the OS.** The system partition holds the Nix store and the generations; all state is on `/persist`, bound into place at boot from what `impermanence.nix` lists. An update replaces the system, never the state, and the system partition can be reinstalled without losing either.
 
@@ -98,7 +98,7 @@ DPlaneOS is designed for a specific trust model: an operator with physical acces
 This means:
 
 - **The audit log is tamper-evident.** Entries are HMAC-chained. You cannot remove an entry without breaking the chain. The audit log is a forensic record, not an operational convenience.
-- **All user-facing credentials are bcrypt-hashed.** Passwords are never stored in reversible form. The `state.yaml` export and the Git repository get secret references, never password hashes or keys.
+- **User passwords and 2FA backup codes are bcrypt-hashed; session and API tokens are stored as SHA-256 hashes.** None of them is stored in reversible form; the passwords of external services, which the daemon must use, are sealed with the node's secrets key. The `state.yaml` export and the Git repository get secret references, never password hashes or keys.
 - **Session management is explicit.** Sessions have a fixed lifetime. There are no "remember me" tokens that persist indefinitely.
 - **RBAC is fine-grained.** 31 discrete permissions. Role assignments have optional expiry. Changes are audited.
 
