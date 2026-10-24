@@ -60,7 +60,7 @@ Graceful shutdown: the daemon drains active connections before stopping (15 s ti
 
 ```bash
 curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
-# Expected: {"status":"ok","version":"16.0.0"}
+# Expected: {"status":"ok","version":"16.0.1"}
 ```
 
 ---

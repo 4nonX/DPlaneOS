@@ -62,7 +62,7 @@ The update runs these steps:
 The same update through the API:
 
 ```bash
-curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v16.0.0"}'   # empty: latest
+curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v16.0.1"}'   # empty: latest
 curl .../api/system/updates/nixos?check=1
 ```
 
@@ -90,7 +90,7 @@ If you find a problem after the check has passed:
 
 ```bash
 sudo nixos-rebuild switch --rollback       # previous generation, now and at boot
-sudo sed -i 's|DPlaneOS/v16.0.0"|DPlaneOS/v15.1.0"|' /etc/nixos/flake.nix   # the release you went back to
+sudo sed -i 's|DPlaneOS/v16.0.1"|DPlaneOS/v16.0.0"|' /etc/nixos/flake.nix   # the release you went back to
 ```
 
 Without the second line, the next rebuild would build the newer release again. If the system does not boot, pick an older generation in the systemd-boot menu.
@@ -149,7 +149,7 @@ sudo tee /etc/nixos/flake.nix >/dev/null <<'EOF'
 # Managed by DPlaneOS: this machine is built from the DPlaneOS release
 # below plus its hardware configuration (and local.nix, if present).
 {
-  inputs.dplaneos.url = "github:4nonX/DPlaneOS/v16.0.0";
+  inputs.dplaneos.url = "github:4nonX/DPlaneOS/v16.0.1";
 
   outputs = { dplaneos, ... }: {
     nixosConfigurations.dplaneos = dplaneos.nixosConfigurations.dplaneos.extendModules {

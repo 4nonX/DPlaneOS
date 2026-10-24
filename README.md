@@ -138,7 +138,10 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 **Cosign / provenance:** every ISO is signed with [cosign](https://github.com/sigstore/cosign) and accompanied by an SPDX SBOM. Verify with:
 
 ```bash
-cosign verify-blob --bundle dplaneos-v16.0.0-installer-amd64.iso.bundle \n  --certificate-identity-regexp '^https://github.com/4nonX/DPlaneOS/' \n  --certificate-oidc-issuer https://token.actions.githubusercontent.com \n  dplaneos-v16.0.0-installer-amd64.iso
+cosign verify-blob --bundle dplaneos-v16.0.1-installer-amd64.iso.bundle \
+  --certificate-identity-regexp '^https://github.com/4nonX/DPlaneOS/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  dplaneos-v16.0.1-installer-amd64.iso
 ```
 
 **Rebuilding from source:** `nix build .#iso`. See [nixos/README.md](nixos/README.md).
