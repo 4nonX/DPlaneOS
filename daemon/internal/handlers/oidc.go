@@ -490,7 +490,7 @@ func (h *OIDCHandler) Exchange(w http.ResponseWriter, r *http.Request) {
 		SELECT username, COALESCE(expires_at, 0)
 		FROM sessions
 		WHERE session_id = $1 AND (expires_at IS NULL OR expires_at > $2)
-	`, sessionID, time.Now().Unix()).Scan(&username, &expiresAt)
+	`, security.SessionKey(sessionID), time.Now().Unix()).Scan(&username, &expiresAt)
 	if err != nil {
 		respondError(w, http.StatusUnauthorized, "Session not found", nil)
 		return
@@ -722,7 +722,7 @@ func (h *OIDCHandler) mintOIDCSession(userID int64, username string, r *http.Req
 		INSERT INTO sessions
 		    (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-	`, sessionID, userID, username, security.RealIP(r), r.UserAgent(), now, expiresAt)
+	`, security.SessionKey(sessionID), userID, username, security.RealIP(r), r.UserAgent(), now, expiresAt)
 	if err != nil {
 		return "", 0, err
 	}

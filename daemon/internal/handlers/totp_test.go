@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/security"
+	"encoding/base64"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -90,7 +92,7 @@ func (e totpEnv) pending(t *testing.T) string {
 	t.Helper()
 	tok, _ := generateSessionID()
 	if _, err := e.db.Exec(`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES ($1, $2, 'tina', $3, $4, 'pending_totp')`,
-		tok, e.user, time.Now().Unix(), time.Now().Add(5*time.Minute).Unix()); err != nil {
+		security.SessionKey(tok), e.user, time.Now().Unix(), time.Now().Add(5*time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	return tok
@@ -122,7 +124,7 @@ func TestTOTPVerify(t *testing.T) {
 	sid := r.body["session_id"].(string)
 	var status string
 	var aal int
-	_ = e.db.QueryRow(`SELECT status, aal FROM sessions WHERE session_id = $1`, sid).Scan(&status, &aal)
+	_ = e.db.QueryRow(`SELECT status, aal FROM sessions WHERE session_id = $1`, security.SessionKey(sid)).Scan(&status, &aal)
 	if status != "active" || aal != 2 {
 		t.Errorf("session %q aal %d", status, aal)
 	}
@@ -149,7 +151,7 @@ func TestTOTPVerifyLockout(t *testing.T) {
 		t.Errorf("after %d failures: %s", totpMaxFailures, r)
 	}
 	var n int
-	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, tok).Scan(&n)
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, security.SessionKey(tok)).Scan(&n)
 	if n != 0 {
 		t.Error("pending session kept after lockout")
 	}
@@ -187,5 +189,31 @@ func TestTOTPBackupCodeSingleUse(t *testing.T) {
 	}
 	if r := e.verify(t, e.pending(t), e.codes[1]); !r.ok() {
 		t.Errorf("another backup code: %s", r)
+	}
+}
+
+// The setup QR code is drawn by the daemon (the secret never goes to a QR
+// web service) as a PNG data URL, which the page's CSP allows.
+func TestTOTPSetupQRCode(t *testing.T) {
+	db := testDB(t)
+	if err := secrets.Init(filepath.Join(t.TempDir(), "secrets.key")); err != nil {
+		t.Fatal(err)
+	}
+	addUser(t, db, "quinn", "Quinn-Passw0rd", "user", true)
+	r := call(t, NewTOTPHandler(db).HandleTOTPSetup, req{method: "GET", user: "quinn"})
+	if !r.ok() {
+		t.Fatalf("setup: %s", r)
+	}
+	png, _ := r.body["qr_png"].(string)
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(png, prefix) {
+		t.Fatalf("qr_png = %.40q", png)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(png, prefix))
+	if err != nil || !strings.HasPrefix(string(raw), "\x89PNG\r\n\x1a\n") {
+		t.Fatalf("not a PNG: %v", err)
+	}
+	if uri, _ := r.body["otpauth_uri"].(string); !strings.HasPrefix(uri, "otpauth://totp/") {
+		t.Errorf("otpauth_uri = %q", uri)
 	}
 }

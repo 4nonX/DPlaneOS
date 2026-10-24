@@ -34,7 +34,7 @@ These projects are installed as separate processes by the NixOS module and commu
 | OpenSSH | BSD-style (with some additional permissive components) | https://www.openssh.com |
 | Git | GPL-2.0-only (explicitly not "or later") | https://git-scm.com |
 
-Optional NUT (Network UPS Tools, primarily GPL-2.0-or-later with some GPL-3.0-or-later and Artistic-1.0 components, https://networkupstools.org) integration is supported but disabled in the default `configuration.nix`.
+Optional NUT (Network UPS Tools, primarily GPL-2.0-or-later with some GPL-3.0-or-later and Artistic-1.0 components, https://networkupstools.org) integration is supported and off until enabled (`services.dplaneos.ups.enable`).
 
 ### A note on OpenZFS
 

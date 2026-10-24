@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"dplaned/internal/security"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,7 @@ func TestLogin(t *testing.T) {
 		t.Fatalf("session id %q", sid)
 	}
 	var status string
-	if err := db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, sid).Scan(&status); err != nil || status != "active" {
+	if err := db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, security.SessionKey(sid)).Scan(&status); err != nil || status != "active" {
 		t.Errorf("session row: %q %v", status, err)
 	}
 
@@ -141,7 +142,7 @@ func TestLoginRestrictedSessions(t *testing.T) {
 		t.Fatalf("login: %s", r)
 	}
 	var status string
-	_ = db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, r.body["session_id"]).Scan(&status)
+	_ = db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, security.SessionKey(r.body["session_id"].(string))).Scan(&status)
 	if status != "must_change_password" {
 		t.Errorf("restricted session status %q", status)
 	}
@@ -154,7 +155,7 @@ func TestLoginRestrictedSessions(t *testing.T) {
 	if !r.ok() || r.body["requires_totp"] != true || r.body["session_id"] != nil {
 		t.Fatalf("a TOTP user gets a pending token, not a session: %s", r)
 	}
-	_ = db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, r.body["pending_token"]).Scan(&status)
+	_ = db.QueryRow(`SELECT status FROM sessions WHERE session_id = $1`, security.SessionKey(r.body["pending_token"].(string))).Scan(&status)
 	if status != "pending_totp" {
 		t.Errorf("pending session status %q", status)
 	}
@@ -216,11 +217,11 @@ func TestChangePassword(t *testing.T) {
 	}
 	// Other sessions are revoked, the current one stays.
 	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, s2).Scan(&n)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, security.SessionKey(s2)).Scan(&n)
 	if n != 0 {
 		t.Error("other session not revoked")
 	}
-	_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, s1).Scan(&n)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id = $1`, security.SessionKey(s1)).Scan(&n)
 	if n != 1 {
 		t.Error("current session revoked")
 	}
@@ -238,16 +239,60 @@ func TestRevokeSession(t *testing.T) {
 	g := sid("gina", "Gina-Passw0rd")
 	hk := sid("hank", "Hank-Passw0rd")
 
-	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "gina", body: map[string]any{"id": hk}}); r.code != 403 {
+	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "gina", body: map[string]any{"id": security.SessionKey(hk)}}); r.code != 403 {
 		t.Errorf("revoking another user's session: %s", r)
 	}
 	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "gina", body: map[string]any{"id": "0123456789abcdef"}}); r.code != 404 {
 		t.Errorf("unknown session: %s", r)
 	}
-	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "gina", body: map[string]any{"id": g}}); !r.ok() {
+	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "gina", body: map[string]any{"id": security.SessionKey(g)}}); !r.ok() {
 		t.Errorf("own session: %s", r)
 	}
-	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "admin", body: map[string]any{"id": hk}}); !r.ok() {
+	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "admin", body: map[string]any{"id": security.SessionKey(hk)}}); !r.ok() {
 		t.Errorf("admin revokes any session: %s", r)
+	}
+}
+
+// The session list shows the stored keys (never tokens) and marks the
+// session the request came with; a listed id revokes that session.
+func TestListSessionsShowsKeys(t *testing.T) {
+	db := testDB(t)
+	h := NewAuthHandler(db)
+	addUser(t, db, "ivy", "Ivy-Passw0rd1", "user", true)
+	login := func() string {
+		r := call(t, h.Login, req{method: "POST", body: map[string]any{"username": "ivy", "password": "Ivy-Passw0rd1"}, remote: "198.51.100.60:1"})
+		return r.body["session_id"].(string)
+	}
+	a, b := login(), login()
+
+	r := call(t, h.ListSessions, req{method: "GET", user: "ivy", header: map[string]string{"X-Session-ID": a}})
+	list, _ := r.body["sessions"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("sessions: %s", r)
+	}
+	var current, other string
+	for _, e := range list {
+		m := e.(map[string]any)
+		id := m["id"].(string)
+		if id == a || id == b {
+			t.Fatalf("a session token is listed: %s", r)
+		}
+		if m["is_current"] == true {
+			current = id
+		} else {
+			other = id
+		}
+	}
+	if current != security.SessionKey(a) || other != security.SessionKey(b) {
+		t.Fatalf("current %q other %q: %s", current, other, r)
+	}
+	if r := call(t, h.RevokeSession, req{method: "DELETE", user: "ivy", body: map[string]any{"id": other}}); !r.ok() {
+		t.Fatalf("revoke the listed session: %s", r)
+	}
+	if _, err := security.ValidateSessionAndGetUser(b); err == nil {
+		t.Error("the revoked session still works")
+	}
+	if _, err := security.ValidateSessionAndGetUser(a); err != nil {
+		t.Errorf("the current session stopped working: %v", err)
 	}
 }

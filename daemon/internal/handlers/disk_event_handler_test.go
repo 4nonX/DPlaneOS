@@ -1,6 +1,11 @@
 package handlers
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // Captured from OpenZFS 2.2 (`zpool import -d <dir>` of an exported pool).
 const zpoolImportOutput = `   pool: hs
@@ -92,5 +97,45 @@ func TestFindFaultedVdevsWasPath(t *testing.T) {
 	}
 	if fv[0].Pool != "hs" || fv[0].VdevPath != "10021633744408138498" || fv[0].State != "UNAVAIL" || fv[0].Was != "/var/tmp/hs/ata-DISK_SERIAL2" {
 		t.Errorf("got %+v", fv[0])
+	}
+}
+
+// Requests through nginx come over the same Unix socket as the udev helper,
+// with a user's session: only the internal token admits a disk event.
+func TestDiskEventNeedsInternalToken(t *testing.T) {
+	old := cronToken
+	cronToken = "boot-token"
+	defer func() { cronToken = old }()
+	cases := []struct {
+		name, remote, token string
+		want                int
+	}{
+		{"socket without token (nginx, any session)", "@", "", http.StatusForbidden},
+		{"socket with a wrong token", "@", "guess", http.StatusForbidden},
+		{"remote with the token", "192.168.1.9:4000", "boot-token", http.StatusForbidden},
+		// Admitted: the body is then checked (empty: 400)
+		{"socket with the token", "@", "boot-token", http.StatusBadRequest},
+		{"loopback with the token", "127.0.0.1:4000", "boot-token", http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest("POST", "/api/internal/disk-event", strings.NewReader(""))
+		r.RemoteAddr = c.remote
+		r.Header.Set("X-Session-ID", "a-valid-user-session")
+		if c.token != "" {
+			r.Header.Set("X-Internal-Token", c.token)
+		}
+		w := httptest.NewRecorder()
+		HandleDiskEvent(w, r)
+		if w.Code != c.want {
+			t.Errorf("%s: status %d, want %d", c.name, w.Code, c.want)
+		}
+	}
+	cronToken = ""
+	r := httptest.NewRequest("POST", "/api/internal/disk-event", strings.NewReader(""))
+	r.RemoteAddr = "@"
+	w := httptest.NewRecorder()
+	HandleDiskEvent(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("no daemon token: status %d, want 403", w.Code)
 	}
 }

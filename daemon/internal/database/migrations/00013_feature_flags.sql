@@ -28,9 +28,5 @@ CREATE INDEX IF NOT EXISTS idx_feature_flags_state ON feature_flags(state);
 -- - nvmeof_support: NVMe over Fabrics (TCP)
 -- - kerberos_integration: Kerberos authentication
 
--- Enterprise features: stable (released)
--- - enterprise_licensing: Ed25519 license verification
--- - compliance_engine: Compliance Engine integration
-
 -- +goose Down
 DROP TABLE IF EXISTS feature_flags;

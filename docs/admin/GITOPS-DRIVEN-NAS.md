@@ -228,7 +228,7 @@ stacks:
 users:
   - username: alice
     # Generate with: python3 -c "import bcrypt; print(bcrypt.hashpw(b'password', bcrypt.gensalt()).decode())"
-    # Or use the web UI to create the user and then capture.
+    # Or create the user in the web interface: it is committed with a secret reference.
     password_hash: "$2b$12$Q9wLkJt0eXa7pVq3sR1mUuH8cN2bD5fG6hJ7kL8mN9pQ0rS1tU2vW"
     email: alice@example.com
     role: admin

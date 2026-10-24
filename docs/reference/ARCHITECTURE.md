@@ -15,7 +15,7 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 │  DECLARATION LAYER                                              │
 │  What the system should look like                               │
 │                                                                 │
-│  revision store      configuration.nix / flake.nix             │
+│  revision store      /etc/nixos/flake.nix (the release)        │
 │  (runtime config;    (OS-level config)                          │
 │   state.yaml, Git)                                              │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -24,7 +24,7 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 │  RECONCILIATION LAYER                                           │
 │  Closes the gap between declared and actual state               │
 │                                                                 │
-│  apply engine + merge     nixos-rebuild switch                  │
+│  apply engine + merge     nixos-rebuild (updates, settings)     │
 │  (peers, Git, fleet)      (OS drift check + activation)         │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ execute
@@ -45,13 +45,13 @@ There are two declaration surfaces:
 
 **The node's revision store** - Runtime configuration: ZFS datasets and their properties, SMB/NFS/iSCSI shares, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. Every node keeps it in its own PostgreSQL database as a log of revisions per resource (`config_revisions`, [Design 0001](../design/0001-distributed-state-gitops-ha.md) section 5.2), whatever changed it: the web UI, the API, a paired node, the Git repository, the fleet manager, a rollback. **The node's own store is the source of truth for that node**, so a node keeps working with no network at all. Paired nodes exchange revisions and merge them (three-way, per resource; conflicts are decided by rules or by the operator, never silently). `state.yaml` is the text form of the store: exported, imported, and kept in a Git repository when the Git backend is switched on, where the repository is one more peer of the merge (see [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md)).
 
-**`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
+**`/etc/nixos/flake.nix`** - OS-level configuration managed by NixOS: the DPlaneOS release (kernel, ZFS, systemd units, firewall baseline, package set, the `/persist` rules) plus the machine's hardware configuration and an optional `local.nix`. The daemon writes the flake. Settings made in the web UI that NixOS applies (hostname, time zone, firewall ports, Samba globals, TLS) go to `/var/lib/dplaneos/dplane-state.json`, which the release reads at build time. Changes here require a NixOS rebuild (an update, or applying the pending NixOS changes).
 
 The division of responsibility is: NixOS owns the platform, the daemon owns the workload and its configuration history, Git (optional) holds a reviewed, versioned copy of it.
 
 ### Reconciliation Layer
 
-**GitOps apply engine** runs inside the daemon. Whenever a change is applied (from another node, from the Git repository through the Git backend in `internal/gitsync`, from the fleet manager (`internal/fleet`, see [FLEET.md](../admin/FLEET.md)), a rollback from the history, or `dplaned --apply-only`), it:
+**GitOps apply engine** runs inside the daemon. Whenever a change is applied (from another node, from the Git repository through the Git backend in `internal/gitsync`, from the fleet manager (`internal/fleet`, see [FLEET.md](../admin/FLEET.md)), a rollback from the history, or `dplaned -apply`), it:
 
 1. Takes the desired state of the resources concerned
 2. Reads the current live system state (ZFS, Docker, Samba, NFS, DB)
@@ -61,7 +61,7 @@ The division of responsibility is: NixOS owns the platform, the daemon owns the 
 
 After every change through the web UI or the API, and every five minutes, the daemon records the live configuration in the revision store (a *capture*): a change made outside the daemon (a shell, another tool) appears in the history as *detected*. When the Git backend is on, changes the node owns are written to the repository and changes found in the repository wait for approval or are applied, through the same merge as changes from paired nodes.
 
-**`nixos-rebuild switch`** is the OS-layer reconciler. It reads the flake, computes which store paths are needed, builds or fetches them, and atomically activates the new system configuration. OTA updates wrap this in an A/B slot mechanism with automatic health-check rollback.
+**`nixos-rebuild`** is the OS-layer reconciler. It reads the flake, computes which store paths are needed, builds or fetches them, and activates the new system as a new generation. Updates build the next release as a generation, reboot into it, check it and go back to the previous generation when the check fails ([OTA-UPDATES.md](../admin/OTA-UPDATES.md)).
 
 ### Execution Layer
 
@@ -128,7 +128,7 @@ The daemon runs as root but constrains itself at the systemd unit level:
 
 ### Authentication and Session Model
 
-Session tokens are 32-byte random values stored hashed in PostgreSQL. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit arbitrary headers cross-origin, which makes the session design inherently CSRF-resistant. HMAC-SHA256 double-submit CSRF tokens are layered on top for defence in depth.
+Session tokens are 32-byte random values; PostgreSQL stores only their SHA-256. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit arbitrary headers cross-origin, which makes the session design inherently CSRF-resistant. HMAC-SHA256 double-submit CSRF tokens are layered on top for defence in depth.
 
 TOTP two-factor authentication is available per user. When enabled, login issues a `pending_totp` session that can only call `/api/auth/totp/verify`; all other routes reject it until the second factor is verified.
 
@@ -150,12 +150,12 @@ Every state-changing operation appends to an audit log stored in PostgreSQL. Eac
 
 ## The Persistence Model
 
-DPlaneOS uses NixOS impermanence: the root filesystem (`/`) holds the system (Nix store, generations) and nothing the daemon must keep. All state that must survive reboots lives on a dedicated `/persist` partition.
+The root filesystem (`/`) holds the system (Nix store, generations) and nothing the daemon must keep; it is not wiped. All state lives on a dedicated `/persist` partition, so the system partition can be reinstalled without losing it.
 
 ```
 Boot disk layout (disko.nix, partition labels):
 ├── dplaneos-esp        /boot       (EFI, systemd-boot, one entry per generation)
-├── dplaneos-system     /           (ext4, 40 GB: Nix store and NixOS generations)
+├── dplaneos-system     /           (ext4, 40 GB, 24 GB on disks under 64 GB: Nix store, generations)
 └── dplaneos-persist    /persist    (durable ext4, all runtime state)
 
 ZFS data disks (separate from boot disk):
@@ -164,20 +164,23 @@ ZFS data disks (separate from boot disk):
 
 Installs before 16.0 have the partition labels `ESP`, `system-a` and `persist` (and an unused `system-b`); `services.dplaneos.legacyPartitionLabels` mounts them.
 
-The `/persist` partition is bind-mounted into the live filesystem at boot. From the daemon's perspective, it writes to `/var/lib/dplaneos`, `/etc/dplaneos`, `/var/lib/docker`, and similar paths - but these are bind-mounts from `/persist` and always land on the durable partition.
+Directories and files listed in `nixos/impermanence.nix` are bind-mounted from the same path under `/persist` at boot (`/var/lib/dplaneos` from `/persist/var/lib/dplaneos`, and so on). From the daemon's perspective, it writes to `/var/lib/dplaneos`, `/etc/dplaneos`, `/var/lib/docker` and similar paths, which land on the durable partition.
 
-Key items on `/persist`:
+Kept on `/persist` (each at the same path below `/persist`):
 
 | Path | Contents |
 |------|----------|
-| `/persist/dplaneos/` | PostgreSQL data, daemon DB, audit HMAC key, gitops repo checkout |
-| `/persist/docker/` (bind to `/var/lib/docker`) | Container state, images, overlay2 volumes |
-| `/persist/samba/` (bind to `/var/lib/samba`) | Samba passdb.tdb, secrets, user accounts |
-| `/persist/ssh/` | NixOS SSH host keys (prevents "host key changed" warnings after OTA) |
-| `/var/lib/dplaneos/update-pending.json`, `update-result.json` | Update waiting for its check after the reboot; result of the last update |
-| `/persist/nixos/` | NixOS UID/GID allocation map (stable ownership across rebuilds) |
+| `/var/lib/dplaneos` | PostgreSQL data (`pgsql/`), secrets key, audit key, settings, stacks, Git clone, update state |
+| `/etc/dplaneos` | Schedules, certificates, ACME account, rclone remotes |
+| `/var/lib/docker` | Container state, images, volumes |
+| `/var/lib/samba`, `/var/lib/nfs`, `/etc/target` | Samba passdb and secrets, NFS state, iSCSI (LIO) configuration |
+| `/var/log/dplaneos`, `/var/log/samba` | Logs |
+| `/var/lib/systemd/network`, `/var/lib/avahi-daemon`, `/var/lib/NetworkManager` | DHCP leases and discovery state |
+| `/var/lib/nixos` | NixOS UID/GID allocation map (stable ownership across rebuilds) |
+| `/etc/machine-id`, `/etc/ssh/ssh_host_*` | Machine ID, SSH host keys |
+| `/persist/etc/hostid` | The machine's ZFS host ID (installed as `/etc/hostid` at every activation) |
 
-ZFS data pools on separate disks are fully independent of this mechanism. A complete reinstall of the boot disk does not touch data pools. After reinstall, run `zpool import -a`.
+ZFS data pools on separate disks are fully independent of this mechanism. A complete reinstall of the boot disk does not touch data pools; after a reinstall, import them (Storage › ZFS Pools › Import). Pools this machine had imported are imported again at every boot (`dplaneos-zfs-import`, from `/etc/zfs/zpool.cache`); pools of a shared storage group are imported by their owner's daemon.
 
 ---
 

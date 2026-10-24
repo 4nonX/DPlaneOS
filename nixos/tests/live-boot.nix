@@ -193,6 +193,16 @@ pkgs.testers.nixosTest {
         http_code = response.strip()
         assert http_code.startswith("2") or http_code.startswith("3"), \
             f"Expected 2xx/3xx response, got {http_code}"
+        headers = liveSystem.succeed("curl -sI http://localhost/").lower()
+        for h in ("content-security-policy:", "x-frame-options:", "x-content-type-options:"):
+            assert h in headers, f"missing {h} in: {headers}"
+
+    # ── Step 10a: Disk events reach the daemon (hot-swap) ────────────────────
+    @test_step("Disk events reach the daemon")
+    def check_disk_events():
+        dev = liveSystem.succeed("readlink -f /dev/disk/by-id/virtio-dplaneci3").strip()
+        liveSystem.succeed(f"udevadm trigger --action=add --settle {dev}")
+        liveSystem.wait_until_succeeds(f"journalctl -u dplaned --no-pager | grep -q 'DISK EVENT: added {dev} '", timeout=60)
 
     # ── Step 10b: End-to-end smoke test against real ZFS, Samba and Avahi ────
     @test_step("End-to-end smoke test")
@@ -277,6 +287,7 @@ pkgs.testers.nixosTest {
     check_docker()
     check_daemon_logs()
     check_api_health()
+    check_disk_events()
     smoke_test()
     check_networking()
     check_persistence()

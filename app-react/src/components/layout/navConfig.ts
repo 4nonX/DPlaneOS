@@ -12,7 +12,6 @@ export interface NavLeaf {
   label: string
   icon: string
   route: string
-  enterprise?: boolean
 }
 
 export interface NavGroup {
@@ -25,11 +24,10 @@ export interface NavGroup {
 
 export type NavItem = NavLeaf | NavGroup
 
-import { pluginNavInject } from '../../plugins'
 
 // ... existing code ...
 
-const initialNav: NavItem[] = [
+export const NAV: NavItem[] = [
   {
     kind: 'leaf',
     id: 'dashboard',
@@ -94,7 +92,6 @@ const initialNav: NavItem[] = [
     icon: 'deployed_code',
     children: [
       { kind: 'leaf', id: 'docker', label: 'Docker',        icon: 'developer_board', route: '/docker' },
-      { kind: 'leaf', id: 'gitops', label: 'GitOps Engine', icon: 'account_tree',    route: '/gitops' },
     ],
   },
   {
@@ -127,7 +124,6 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'firewall',     label: 'Firewall',          icon: 'local_fire_department', route: '/firewall' },
       { kind: 'leaf', id: 'certificates', label: 'Certificates',      icon: 'verified_user',         route: '/certificates' },
       { kind: 'leaf', id: 'audit',        label: 'Audit Log',         icon: 'policy',                route: '/audit' },
-      { kind: 'leaf', id: 'compliance',   label: 'Compliance',         icon: 'shield_check',          route: '/compliance', enterprise: true },
     ],
   },
   {
@@ -139,6 +135,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'settings',     label: 'Settings',         icon: 'tune',                  route: '/settings' },
       { kind: 'leaf', id: 'updates',      label: 'System Updates',   icon: 'upgrade',               route: '/updates' },
       { kind: 'leaf', id: 'history',      label: 'Change History',   icon: 'history',               route: '/history' },
+      { kind: 'leaf', id: 'gitops',       label: 'Git',              icon: 'account_tree',          route: '/gitops' },
       { kind: 'leaf', id: 'config-sync',  label: 'Configuration Sync', icon: 'sync_alt',            route: '/config-sync' },
       { kind: 'leaf', id: 'logs',         label: 'Logs',             icon: 'description',           route: '/logs' },
       { kind: 'leaf', id: 'reporting',    label: 'Reporting',        icon: 'monitoring',            route: '/reporting' },
@@ -148,7 +145,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'power',        label: 'Power Management', icon: 'power_settings_new',    route: '/power' },
       { kind: 'leaf', id: 'hardware',     label: 'Hardware',         icon: 'memory',                route: '/hardware' },
       { kind: 'leaf', id: 'ipmi',         label: 'IPMI',             icon: 'devices_other',         route: '/ipmi' },
-      { kind: 'leaf', id: 'ha',           label: 'HA Cluster',       icon: 'device_hub',            route: '/ha' },
+      { kind: 'leaf', id: 'ha',           label: 'High Availability',     icon: 'device_hub',            route: '/ha' },
       { kind: 'leaf', id: 'cluster',      label: 'Cluster Map',      icon: 'hub',                   route: '/cluster' },
       { kind: 'leaf', id: 'fleet',        label: 'Fleet',            icon: 'lan',                   route: '/fleet' },
       { kind: 'leaf', id: 'removable',    label: 'Removable Media',  icon: 'usb',                   route: '/removable' },
@@ -158,9 +155,6 @@ const initialNav: NavItem[] = [
     ],
   },
 ]
-
-export const NAV = [...initialNav]
-pluginNavInject(NAV)
 
 /**
  * Returns the NavLeaf for a given route path, plus its parent group id (if any).

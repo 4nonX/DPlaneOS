@@ -6,20 +6,23 @@ This document covers notification configuration (SMTP, webhook, Telegram), alert
 
 ## Alerting Overview
 
-DPlaneOS sends alerts when system conditions cross configured thresholds or when critical events occur. Multiple delivery channels can be configured simultaneously - an event routes to all enabled channels.
+DPlaneOS sends an alert when a pool's health changes, when ZFS reports a fault, and when a background job (replication, snapshot, update, backup, stack update) fails or recovers. Every alert goes to the web interface (live, over WebSocket) and to the configured channels:
 
 ```
-Event occurs (ZFS fault, CPU threshold, login, etc.)
+Event (pool health, ZED, capacity, SMART, UPS, jobs)
          │
-Alert dispatcher
+DispatchAlert (level, event, resource, message)
          │
-   ┌─────┼─────┐
-   ▼     ▼     ▼
- SMTP  Webhook  Telegram
-(email) (Slack/Teams/etc.) (Telegram bot)
+   ┌─────┼──────────┐
+   ▼     ▼          ▼
+Webhooks  SMTP     Telegram
+(every    (warning and critical only)
+ level)
 ```
 
-The dispatcher is non-blocking - if a channel fails to deliver, the others are still attempted and the failure is logged.
+The same alert (level, event and resource) is sent again only after 30 minutes: one scrub of a damaged pool otherwise produced one mail per damaged block. A channel that fails does not stop the others; the failure is logged.
+
+Configure the channels under **System › Alerts** (tabs Telegram, SMTP / Email, Webhooks).
 
 ---
 
@@ -27,17 +30,19 @@ The dispatcher is non-blocking - if a channel fails to deliver, the others are s
 
 ### Setup
 
-Settings: System: Notifications: Email.
+System › Alerts → **SMTP / Email**.
 
 | Field | Description |
 |-------|-------------|
 | SMTP Host | Mail server hostname (e.g., `smtp.gmail.com`) |
 | SMTP Port | Usually 587 (STARTTLS) or 465 (TLS) |
 | Username | SMTP authentication username |
-| Password | SMTP authentication password |
+| Password | SMTP authentication password (stored encrypted) |
 | From Address | The `From:` header for alert emails |
-| To Address | Recipient address (one address; use a mailing list for multiple) |
+| To Address | Recipients, comma-separated |
 | TLS | Enable TLS (enabled by default) |
+
+Only warning and critical alerts are mailed. The subject is `[DPlaneOS] <event>: <resource>`.
 
 ### Test
 
@@ -55,7 +60,7 @@ POST /api/alerts/smtp
   "username": "alerts@example.com",
   "password": "...",
   "from": "nas@example.com",
-  "to": "ops@example.com",
+  "to": "ops@example.com, oncall@example.com",
   "tls": true,
   "enabled": true
 }
@@ -65,97 +70,77 @@ POST /api/alerts/smtp/test
 
 ---
 
-## Webhook (Slack, Teams, Discord, PagerDuty)
+## Webhooks (Slack, Teams, Discord, ntfy, any HTTP endpoint)
 
-Webhooks POST a JSON payload to any HTTP endpoint when an alert fires. All major chat and incident management platforms support incoming webhooks.
+Webhooks POST each alert to an HTTP endpoint. Every level is sent (info, warning, critical), filtered by the webhook's event list.
 
 ### Setup
 
-Settings: System: Notifications: Webhooks: Add Webhook.
+System › Alerts → **Webhooks** → add a webhook.
 
 | Field | Description |
 |-------|-------------|
-| URL | Webhook endpoint URL |
-| Secret / Token | Optional: included as `X-DPlaneOS-Signature` header (HMAC-SHA256 of payload) |
-| Method | POST (always) |
-| Enabled | Toggle per-webhook |
+| Name, URL | The endpoint |
+| Secret header / value | Optional: a header sent with every request (for example `Authorization: Bearer ...`, or a token header your receiver checks) |
+| Headers | Optional further headers |
+| Content type | Default `application/json` |
+| Body template | Optional: the body to send instead of the default JSON, with `{{event}}`, `{{severity}}`, `{{message}}`, `{{pool}}` (the resource), `{{hostname}}` and `{{timestamp}}`; in a JSON template the values are JSON-escaped |
+| Events | Optional: the events to send (empty: all) |
+| Enabled | Toggle per webhook |
 
-### Payload Format
+### Default payload
 
-DPlaneOS sends this JSON structure to all webhook endpoints:
+Without a body template, DPlaneOS sends:
 
 ```json
 {
-  "event": "zfs.pool.degraded",
-  "severity": "critical",
-  "message": "Pool 'tank' is DEGRADED: 1 disk faulted",
-  "detail": {
-    "pool": "tank",
-    "state": "DEGRADED",
-    "vdev": "/dev/disk/by-id/ata-WDC_...",
-    "vdev_state": "FAULTED"
-  },
+  "event": "pool.degraded",
   "hostname": "nas-01",
-  "timestamp": "2026-05-13T08:42:00Z",
-  "version": "10.0.0"
+  "severity": "warning",
+  "message": "Pool 'tank' is DEGRADED ...",
+  "timestamp": "2026-10-23T08:42:00Z",
+  "data": { "pool": "tank", "resource": "tank" }
 }
 ```
 
-### Platform-Specific Examples
+### Platform examples
 
-**Slack (Incoming Webhook):**
-Create an incoming webhook at `api.slack.com/apps`, copy the webhook URL, paste into DPlaneOS. No additional setup needed - the payload format is automatically adapted for Slack's `text` field.
+**Slack** (incoming webhook) and **Discord** (append `/slack` to the webhook URL): body template `{"text": "{{severity}} {{event}} on {{hostname}}: {{message}}"}`.
 
-**Microsoft Teams:**
-In Teams, add a channel connector: Incoming Webhook. Copy the URL. DPlaneOS sends a generic JSON payload; Teams renders it as a card.
+**Microsoft Teams** (incoming webhook or workflow): a body template in the card format your Teams endpoint expects, using the same placeholders.
 
-**Discord:**
-In Discord server settings: Integrations: Webhooks. Append `/slack` to the webhook URL before pasting into DPlaneOS (Discord supports Slack-compatible payloads at that path).
-
-**PagerDuty:**
-Use PagerDuty's Events API v2 integration URL (`https://events.pagerduty.com/v2/enqueue`). Set the routing key as the token. DPlaneOS maps severity to PagerDuty `severity` field automatically.
-
-**Generic / Custom:**
-Any HTTP endpoint that accepts POST with JSON body. Use the signature header (`X-DPlaneOS-Signature`) to verify authenticity on your receiver.
+**ntfy, Gotify, generic receivers:** the default JSON, or a plain-text body template with content type `text/plain`.
 
 ### Via API
 
 ```
-GET  /api/alerts/webhooks
-POST /api/alerts/webhooks
-{"url": "https://hooks.slack.com/...", "enabled": true}
+GET    /api/alerts/webhooks
+POST   /api/alerts/webhooks
+{"name": "slack", "url": "https://hooks.slack.com/...", "body_template": "{\"text\": \"{{message}}\"}", "enabled": true}
 
 DELETE /api/alerts/webhooks/{id}
 
-POST /api/alerts/webhooks/{id}/test
+POST   /api/alerts/webhooks/{id}/test
 ```
 
 ---
 
 ## Telegram
 
-For direct Telegram notifications, DPlaneOS can send messages to a Telegram bot.
-
 ### Setup
 
 1. Create a bot via `@BotFather` on Telegram: `/newbot` - copy the API token
 2. Start a conversation with your bot (or add it to a group)
 3. Get your chat ID: `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending a message to the bot
-4. In DPlaneOS: Settings: System: Notifications: Telegram
+4. In DPlaneOS: System › Alerts → **Telegram**
 
 | Field | Description |
 |-------|-------------|
-| Bot Token | The token from @BotFather |
+| Bot Token | The token from @BotFather (stored encrypted) |
 | Chat ID | Your chat ID or group chat ID (negative number for groups) |
 | Enabled | Toggle |
 
-### ZED Integration (ZFS Event Daemon)
-
-For ZFS disk and pool events, the ZFS Event Daemon (ZED) sends events to the DPlaneOS daemon via Unix socket (`/run/dplaneos/dplaneos.sock`). The daemon then dispatches them to all configured alert channels (SMTP, Telegram, webhooks). If the daemon is down, ZED events are logged to syslog only.
-
-The ZED hook is installed automatically by the NixOS module (`services.zfs.zed.d/all-dplaneos-notify.sh`). No additional configuration is required.
-
-`zed_listener.go` dispatches ZED events to typed WebSocket events and forwards warning/error severity events to all configured alert channels. Handled subclasses: `scrub_start`, `scrub_finish`, `scrub_abort`, `resilver_start`, `resilver_finish`, `trim_start`, `trim_finish`, `trim_abort`, `vdev_clear`, `vdev_online`, `pool_import`, `data_loss`, `deadman`, `statechange`, `checksum`, `io`, `pool_destroy`, `vdev_remove`, `device_removal`. All other subclasses emit a generic `zfs.event.<subclass>` WebSocket event.
+Only warning and critical alerts are sent to Telegram.
 
 ### Via API
 
@@ -168,89 +153,39 @@ POST /api/alerts/telegram
 POST /api/alerts/telegram/test
 ```
 
+### ZED Integration (ZFS Event Daemon)
+
+ZFS events reach the daemon through the ZED hook (`/etc/zfs/zed.d/all-dplaneos-notify.sh`, installed by the NixOS module) and the socket `/run/dplaneos/dplaneos.sock`. They are shown live in the web interface (`zfs.event.<subclass>`), and the warning and error ones are sent as alerts (`zfs.<severity>.<subclass>`). If the daemon is down, ZED events are logged to syslog only.
+
 ---
 
-## Alert Event Taxonomy
+## Alert Events
 
-DPlaneOS generates alerts for the following event categories:
+| Event | Level | When |
+|-------|-------|------|
+| `pool.degraded` | warning | A pool became DEGRADED |
+| `pool.critical` | critical | A pool became FAULTED, UNAVAIL, SUSPENDED or REMOVED, or the pool list cannot be read |
+| `pool.recovered` | info | A pool is ONLINE again |
+| `pool.scrub_error`, `pool.resilver_error` | warning | A scrub or resilver ended with errors |
+| `pool.never_scrubbed` | warning | A pool older than 40 days has never been scrubbed |
+| `zfs.<severity>.<subclass>` | warning, error | A ZFS event from ZED (checksum and I/O errors, data loss, deadman, ...) |
+| `capacity.warning`, `capacity.critical`, `capacity.emergency` | warning, critical | A pool is 80 %, 90 % or 95 % full |
+| `disk.smart_fail` | warning, critical | S.M.A.R.T. predicts a disk failure |
+| `ups.<event>` | info to critical | UPS events from NUT (on battery, low battery, back online, ...) |
+| `replication.failed`, `replication.recovered` | warning, info | A replication job failed, or runs again after failing |
+| `replication.restore_complete` | info | A restore from a replica finished |
+| `snapshot.failed` | warning | A scheduled snapshot failed |
+| `docker.stopped` | critical | Docker was stopped because a pool failed (containers would write into empty mountpoints) |
+| `docker.auto_updated`, `docker.auto_update_rolled_back`, `docker.auto_update_failed` | info, warning, critical | Automatic stack updates |
+| `gitsync.deploy_failed` | warning | Deploying a stack from a Git repository failed |
+| `upgrade.applied`, `upgrade.rolled_back` | info, critical | A system update was kept, or rolled back after its check |
+| `config.backup_failed` | warning | The daily configuration backup could not be written |
+| `config.restored`, `config.restore_failed` | info, critical | A configuration restore was applied, or failed |
+| `certificate.renewal_failed` | warning | An ACME certificate could not be renewed |
 
-### Storage Events
+Holds of the Git configuration repository (`gitops.hold`) are shown in the web interface and on the Git page.
 
-| Event | Severity | Description |
-|-------|----------|-------------|
-| `zfs.pool.degraded` | Critical | A pool has entered DEGRADED state (one or more faulted devices) |
-| `zfs.pool.faulted` | Critical | A pool has entered FAULTED state (offline) |
-| `zfs.pool.scrub_error` | Warning | Scrub completed with errors (data integrity issues) |
-| `zfs.pool.scrub_complete` | Info | Scrub finished successfully |
-| `scrub_aborted` | Warning | In-progress scrub was aborted |
-| `zfs.pool.resilver_start` | Info | Resilver (rebuild) started after disk replacement |
-| `zfs.pool.resilver_complete` | Info | Resilver completed |
-| `trim_started` | Info | TRIM operation started on a pool |
-| `zfs.trim.progress` | Info | TRIM in-progress update (percent done, ETA, bytes trimmed) |
-| `trim_completed` | Info | TRIM finished successfully |
-| `trim_aborted` | Warning | In-progress TRIM was aborted |
-| `vdev_errors_cleared` | Info | Error counters on a vdev were cleared (`zpool clear`) |
-| `vdev_recovered` | Info | A vdev that was offline or faulted has come back online |
-| `pool_imported` | Info | A pool was imported (e.g., after hot-plug or system startup) |
-| `zfs.data_loss` | Error | ZFS kernel reported a data loss event on the pool |
-| `zfs.deadman` | Error | ZFS I/O deadman timeout fired (pool I/O hung) |
-| `zfs.checksum_errors` | Warning | Checksum errors detected on a vdev |
-| `zfs.io_errors` | Error | I/O errors detected on a vdev |
-| `zfs.dataset.quota_warn` | Warning | Dataset usage above 80% of quota |
-| `zfs.dataset.quota_critical` | Critical | Dataset usage above 95% of quota |
-| `storage.disk.faulted` | Critical | A disk has been removed or reported errors above threshold |
-| `storage.smart.fail` | Critical | SMART pre-fail attribute crossed threshold |
-
-### System Events
-
-| Event | Severity | Description |
-|-------|----------|-------------|
-| `system.cpu.high` | Warning | CPU usage above configured threshold (default 90%) |
-| `system.memory.high` | Warning | Memory usage above configured threshold (default 90%) |
-| `system.temperature.high` | Warning | CPU or disk temperature above threshold |
-| `system.load.high` | Warning | 5-minute load average above `nproc * 2` |
-| `system.update.available` | Info | A new DPlaneOS version is available |
-| `system.update.applied` | Info | OTA update completed successfully |
-| `system.update.reverted` | Critical | OTA health check failed; system reverted to previous version |
-
-### Security Events
-
-| Event | Severity | Description |
-|-------|----------|-------------|
-| `auth.login.success` | Info | Successful login (configurable - off by default to reduce noise) |
-| `auth.login.failed` | Warning | Failed login attempt |
-| `auth.login.locked` | Warning | Account locked after repeated failures |
-| `auth.totp.disabled` | Warning | TOTP disabled for an account |
-| `auth.permission.denied` | Warning | API request denied due to insufficient permissions |
-| `user.created` | Info | User account created |
-| `user.deleted` | Info | User account deleted |
-| `role.assigned` | Info | Role assignment changed |
-
-### Services Events
-
-| Event | Severity | Description |
-|-------|----------|-------------|
-| `docker.container.stopped` | Warning | A container that was running has stopped unexpectedly |
-| `docker.container.oom` | Critical | Container killed by OOM (out of memory) |
-| `replication.failed` | Warning | Scheduled ZFS replication task failed |
-| `replication.success` | Info | ZFS replication completed (configurable - off by default) |
-| `gitops.drift_detected` | Warning | Live state diverged from state.yaml |
-| `gitops.apply_failed` | Critical | GitOps apply operation failed |
-| `ha.failover` | Critical | HA failover occurred (expected or unexpected) |
-| `ha.node.unreachable` | Critical | HA peer node is not responding |
-
-### Alert Thresholds
-
-Configure thresholds in Monitoring: Settings.
-
-| Metric | Default threshold | Field |
-|--------|------------------|-------|
-| CPU usage | 90% | `cpu_warn_pct` |
-| Memory usage | 90% | `mem_warn_pct` |
-| Dataset usage warn | 80% of quota | `dataset_warn_pct` |
-| Dataset usage critical | 95% of quota | `dataset_crit_pct` |
-| Load average | 2 * nproc | `load_factor` |
-| Temperature | 65°C CPU, 55°C disk | `temp_cpu_warn`, `temp_disk_warn` |
+The thresholds are fixed: pool capacity at 80 %, 90 % and 95 %; pool health and S.M.A.R.T. as ZFS and the disks report them.
 
 ---
 
@@ -262,26 +197,17 @@ DPlaneOS implements RFC 6238 TOTP: 6-digit codes, 30-second period, SHA-1 HMAC, 
 
 ### Enabling TOTP for Your Account
 
-1. Settings: Account: Two-Factor Authentication: Enable
+1. Security › Security Settings → tab **2FA / TOTP** → enable
 2. Scan the QR code with an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc.)
 3. Enter the current 6-digit code to confirm the setup
 4. Copy and store the 8 backup codes shown - these are shown only once
 
-TOTP is per-account. An admin can require TOTP for all users in Settings: Security.
-
-### Enforcing TOTP Org-Wide
-
-Settings: Security: Require 2FA: Enable.
-
-When enabled:
-- Existing users without TOTP are prompted to enroll on next login
-- New users are required to set up TOTP before accessing any other page
-- The local admin (user ID 1) is exempt from org-wide enforcement so the account is always recoverable
+TOTP is per account; each user enables it for themselves. Some operations require a session that logged in with TOTP (AAL2, see below), so administrators should enable it.
 
 ### Backup Codes
 
 On TOTP setup, 8 single-use backup codes are generated. Each code:
-- Is 8 characters (alphanumeric, case-insensitive)
+- Is 8 hexadecimal characters
 - Can only be used once
 - Is stored as a bcrypt hash (the plaintext is shown only during setup)
 - Bypasses the TOTP requirement entirely
@@ -300,7 +226,7 @@ sudo dplaneos-recovery   # option 6: Turn Off a User's Two-Factor Authentication
 
 This forces re-enrollment on the user's next login.
 
-If user 1 (the local admin) is locked out, use SSH access to the NAS and `sudo dplaneos-recovery` (option 5: Reset a User's Password; option 6 for a lost 2FA device).
+If the local admin is locked out, use the console or SSH and `sudo dplaneos-recovery` (option 5: Reset a User's Password; option 6 for a lost 2FA device).
 
 ### TOTP API
 
@@ -325,7 +251,7 @@ POST   /api/auth/totp/verify  # step 2 of login: exchange pending_token + TOTP c
 
 If the code is wrong: the request fails with 401. There is no per-attempt lockout at the TOTP step. Rate limiting applies at the password step (`POST /api/auth/login`) and is IP-based with exponential backoff: delays grow from 2 seconds after the second failure to a 30-second cap after six or more failures. The counter resets after 15 minutes of inactivity.
 
-After TOTP verification, the session's `aal` field is upgraded to 2 (Authentication Assurance Level 2). Operations with elevated risk (pool destroy, password reset, fencing configuration, ALUA state flip) require AAL2. A session authenticated with password only (AAL1) is rejected at those endpoints with HTTP 403 and `action: "enable_totp"`.
+After TOTP verification, the session's `aal` field is upgraded to 2 (Authentication Assurance Level 2). Operations with elevated risk require AAL2: pool destroy, resetting another user's password, fencing, CTDB and watchdog configuration, BMC enrolment, power control and certificate reset, and the iSCSI ALUA state. A session authenticated with password only (AAL1) is rejected at those endpoints with HTTP 403 and `action: "enable_totp"`.
 
 ### Clock Synchronization
 
@@ -337,7 +263,7 @@ timedatectl status
 # Should show: "System clock synchronized: yes"
 ```
 
-### SCRAM-SHA-512 Authentication (v14.0.0)
+### SCRAM-SHA-512 Authentication
 
 SCRAM (Salted Challenge Response Authentication Mechanism, RFC 5802) is an alternative authentication path using a two-round challenge/response protocol with PBKDF2-SHA512 key derivation (100,000 iterations). The raw password is never transmitted after the initial key setup.
 

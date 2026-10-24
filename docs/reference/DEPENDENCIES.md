@@ -66,7 +66,7 @@ All system-level dependencies are declared in the NixOS module (`nixos/module.ni
 | `zfs` | ZFS pool and dataset management (kernel module + CLI) |
 | `postgresql` | Database and CLI (`psql`) |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
-| `udev` (systemd) | Device event rules (hot-swap, removable media) |
+| `udev` (systemd) | Disk hot-swap events to the daemon (`services.udev.extraRules` in `module.nix`) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |
 | `nfs-utils` | NFS exports (`exportfs`) |
 | `nfs4-acl-tools` | NFSv4 ACL management (`nfs4_getfacl`, `nfs4_setfacl`) |
@@ -84,7 +84,7 @@ All packages are pinned via the flake lockfile. Versions are reproducible across
 
 | Dependency | Purpose |
 |------------|---------|
-| Go 1.22+ | Rebuild the daemon from source |
+| Go (version in `daemon/go.mod`, 1.26) | Rebuild the daemon from source |
 | Node.js 20+ | Rebuild the frontend from source |
 | gcc / CGO | Required for the cgo (`libzfs`) build path |
 | `libzfs.h` + `pkg-config` + `pkgs.zfs` | Required for `dplaneos-daemon-cgo` build target only |
@@ -93,21 +93,21 @@ Pre-built binaries are included in the release tarball. Go and Node.js are not n
 
 ### Two build variants
 
-The standard production build (`dplaneos-daemon`) uses a static musl binary with CGO disabled. ZFS operations use subprocess calls through the exec allowlist. This binary has no runtime dependency on `libzfs.so`.
-
-The cgo build (`dplaneos-daemon-cgo`) links against `libzfs.so` at runtime and calls ZFS operations natively via `libzfs.h`. It requires `gcc`, `pkg-config`, and `pkgs.zfs` at build time and produces a glibc-linked binary. Enable with:
+The production build (`dplaneos-daemon-cgo`, the daemon the appliance runs) links against `libzfs.so` and calls pool and dataset operations natively via `libzfs.h`; send/receive and some listings still run the allowlisted `zfs` command. It needs `gcc`, `pkg-config` and `pkgs.zfs` at build time and produces a glibc-linked binary:
 
 ```bash
 nix build .#dplaneos-daemon-cgo
 ```
 
+The static build (`dplaneos-daemon`, CGO disabled, musl) runs every ZFS operation through the `zfs` and `zpool` commands. CI and installs outside NixOS (`install.sh`) use it; it has no runtime dependency on `libzfs.so`.
+
 Both variants expose identical APIs. The build tag `libzfs` controls which path is compiled:
 
 ```bash
-# Explicit cgo build
+# cgo build (production)
 go build -tags "linux cgo libzfs" -mod=vendor ./cmd/dplaned/
 
-# Standard static build (default)
+# static build
 CGO_ENABLED=0 go build -mod=vendor ./cmd/dplaned/
 ```
 
@@ -152,9 +152,9 @@ check_service "docker"   docker
 Only needed if you want to modify the daemon or frontend.
 
 ```bash
-# Daemon (requires Go 1.22+ and gcc)
+# Daemon (static build; see above for the libzfs build)
 cd daemon
-go build -mod=vendor \
+CGO_ENABLED=0 go build -mod=vendor \
   -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
   -o ../build/dplaned ./cmd/dplaned/
 

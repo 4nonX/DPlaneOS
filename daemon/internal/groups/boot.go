@@ -3,15 +3,17 @@ package groups
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 )
 
 // Importing shared pools on the owner (Design 0001 phase 3e).
 //
-// The pools of a shared group are imported with cachefile=none, so the boot
-// never imports them (on shared disks the boot cannot know which node owns
-// them). The owner's daemon imports them instead, once it is safe:
+// The pools of a shared group are imported with cachefile=none, and the boot
+// skips the pools listed in SharedPoolsFile, so the boot never imports them
+// (on shared disks the boot cannot know which node owns them). The owner's
+// daemon imports them instead, once it is safe:
 //
 //   - every other candidate answered and does not have them imported, or
 //   - the candidates that do not answer are outside this node's quorate
@@ -188,6 +190,58 @@ func (m *Manager) importOwned(g Group) error {
 		log.Printf("GROUPS: %s: imported pool %s", g.Name, p.Name)
 	}
 	return nil
+}
+
+// SharedPoolsFile lists the pools of every shared group, one per line, on
+// every member. The boot-time import (dplaneos-zfs-import, nixos/module.nix)
+// skips them whatever /etc/zfs/zpool.cache says: a cache entry left from
+// before the pool was shared, or from an import that was not undone, must
+// not let a node that does not own the pool import it at boot.
+const SharedPoolsFile = "/var/lib/dplaneos/shared-pools"
+
+// sharedPoolNames: the pools of the shared groups, sorted.
+func sharedPoolNames(gs []Group) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, g := range gs {
+		if g.Topology != Shared {
+			continue
+		}
+		for _, p := range g.Pools {
+			if p.Name != "" && !seen[p.Name] {
+				seen[p.Name] = true
+				names = append(names, p.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// recordSharedPools writes SharedPoolsFile when the list changed.
+func (m *Manager) recordSharedPools() {
+	if m.ops.SharedPools == nil {
+		return
+	}
+	gs, err := List(m.db)
+	if err != nil {
+		return
+	}
+	names := sharedPoolNames(gs)
+	key := strings.Join(names, "\n")
+	m.fmu.Lock()
+	same := m.sharedList != nil && *m.sharedList == key
+	m.fmu.Unlock()
+	if same {
+		return
+	}
+	if err := m.ops.SharedPools(names); err != nil {
+		log.Printf("GROUPS: %s: %v", SharedPoolsFile, err)
+		return
+	}
+	m.fmu.Lock()
+	m.sharedList = &key
+	m.fmu.Unlock()
 }
 
 // uncache keeps a shared pool out of the boot-time import (once per run).

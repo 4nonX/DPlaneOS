@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"database/sql"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -19,7 +20,9 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/secrets"
+	"dplaned/internal/security"
 	"golang.org/x/crypto/bcrypt"
+	"rsc.io/qr"
 )
 
 // TOTPHandler manages TOTP-based two-factor authentication
@@ -238,14 +241,21 @@ func (h *TOTPHandler) getTOTPSetup(w http.ResponseWriter, userID int, username s
 			}
 			secret = plain
 		}
-		// Build otpauth:// URI for QR code
+		// Build otpauth:// URI and its QR code. The QR code is drawn here:
+		// the secret must not leave this machine (no QR web service).
 		otpauthURI := buildOTPAuthURI(username, secret)
-		respondJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"success":     true,
 			"enabled":     false,
 			"secret":      secret,
 			"otpauth_uri": otpauthURI,
-		})
+		}
+		if code, qrErr := qr.Encode(otpauthURI, qr.M); qrErr == nil {
+			resp["qr_png"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
+		} else {
+			log.Printf("TOTP QR: %v", qrErr)
+		}
+		respondJSON(w, http.StatusOK, resp)
 		return
 	}
 
@@ -427,7 +437,7 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 		JOIN users u ON u.id = s.user_id
 		WHERE s.session_id = $1 AND s.status = 'pending_totp'
 		AND (s.expires_at IS NULL OR s.expires_at > $2)
-	`, req.PendingToken, time.Now().Unix()).Scan(&userID, &username)
+	`, security.SessionKey(req.PendingToken), time.Now().Unix()).Scan(&userID, &username)
 	if err != nil {
 		respondErrorSimple(w, "Invalid or expired pending session", http.StatusUnauthorized)
 		return
@@ -450,7 +460,7 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	if totpAttempts.locked(userID, now) {
 		// The pending login is spent; a new one needs the password again.
-		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, req.PendingToken) //nolint:errcheck
+		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, security.SessionKey(req.PendingToken)) //nolint:errcheck
 		audit.LogAction("auth", username, "2FA locked: too many failed codes", false, 0)
 		respondErrorSimple(w, "Too many failed codes - try again in 15 minutes", http.StatusTooManyRequests)
 		return
@@ -483,7 +493,7 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.db.Exec(
 		`UPDATE sessions SET session_id = $1, status = 'active', aal = 2 WHERE session_id = $2 AND status = 'pending_totp'`,
-		sessionID, req.PendingToken)
+		security.SessionKey(sessionID), security.SessionKey(req.PendingToken))
 	if err != nil {
 		log.Printf("TOTP SESSION UPGRADE ERROR: %v", err)
 		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
@@ -502,7 +512,7 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Get session expiry
 	var expiresAt int64
-	if err := h.db.QueryRow(`SELECT COALESCE(expires_at, 0) FROM sessions WHERE session_id = $1`, sessionID).Scan(&expiresAt); err != nil {
+	if err := h.db.QueryRow(`SELECT COALESCE(expires_at, 0) FROM sessions WHERE session_id = $1`, security.SessionKey(sessionID)).Scan(&expiresAt); err != nil {
 		log.Printf("TOTP SESSION EXPIRY ERROR: %v", err)
 	}
 

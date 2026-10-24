@@ -319,6 +319,98 @@ in {
       mode = "0755";
     };
 
+    # ─── Pools at boot ───────────────────────────────────────────────────
+    # NixOS imports only the pools of fileSystems and boot.zfs.extraPools, and
+    # DPlaneOS uses neither: the pools this machine had imported are in
+    # /etc/zfs/zpool.cache. Import them before anything that uses them. The
+    # pools of a shared storage group are never imported here, even with a
+    # cache entry (one left from before the pool was shared, or from an
+    # import that was not undone): the daemon lists them in
+    # /var/lib/dplaneos/shared-pools, and only their owner's daemon imports
+    # them (internal/groups/boot.go).
+    systemd.services.dplaneos-zfs-import = {
+      description = "DPlaneOS: import this machine's ZFS pools";
+      wantedBy = [ "zfs-import.target" ];
+      before   = [ "zfs-import.target" ];
+      after    = [ "systemd-udev-settle.service" "systemd-modules-load.service" ];
+      wants    = [ "systemd-udev-settle.service" ];
+      unitConfig.DefaultDependencies = false;
+      unitConfig.ConditionFileNotEmpty = "/etc/zfs/zpool.cache";
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = {
+        Type            = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = let zpool = "${config.boot.zfs.package}/bin/zpool"; in
+          pkgs.writeShellScript "dplaneos-zfs-import" ''
+            cache=/etc/zfs/zpool.cache
+            shared=/var/lib/dplaneos/shared-pools
+            rc=0
+            # The cache only says which pools are this machine's. Each is
+            # imported from its disks, by GUID: an import from the cache
+            # checks the cache's own record of who used the pool last, which
+            # still names this machine when another system imported the pool
+            # since (the disk labels say who did).
+            while read -r pool guid; do
+              if [ -f "$shared" ] && ${pkgs.gnugrep}/bin/grep -qxF -- "$pool" "$shared"; then
+                echo "$pool: pool of a shared storage group, left to its owner's daemon"
+                continue
+              fi
+              err=$(${zpool} import -N "$guid" 2>&1) && continue
+              # Up to 16.0.0 every machine ran with host ID 0, which ZFS does
+              # not record: a pool that was imported when such a machine went
+              # down looks like another system's to the same machine with its
+              # own host ID. Only that case is imported with -f: last used by
+              # this hostname without a host ID. Anything else stays as it is.
+              if printf '%s\n' "$err" | ${pkgs.gnugrep}/bin/grep -qF "Last accessed by $(cat /proc/sys/kernel/hostname) (hostid=0) at"; then
+                echo "$pool: last used by this machine before it had its own host ID; importing it"
+                ${zpool} import -N -f "$guid" && continue
+              fi
+              printf '%s\n' "$err" >&2
+              rc=1
+            done < <(${zpool} import -c "$cache" 2>/dev/null \
+              | ${pkgs.gawk}/bin/awk '$1 == "pool:" { name = $2 } $1 == "id:" { print name, $2 }')
+            exit $rc
+          '';
+      };
+    };
+
+    # ─── Disk hot-swap ───────────────────────────────────────────────────
+    # The daemon learns of every disk that comes or goes (the Hardware page,
+    # the disk registry) and brings a returning pool member back online or
+    # imports the exported pool the disk was last part of here
+    # (disk_event_handler.go). udev kills what a RUN program leaves behind, and
+    # a new disk needs a few seconds before its size is readable: the event
+    # is passed on from a transient unit.
+    services.udev.extraRules =
+      let
+        notify = pkgs.writeShellScript "dplaneos-disk-event" ''
+          export PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.util-linux pkgs.curl ]}
+          action=$1 dev=$2
+          case "$(basename "$dev")" in
+            nvme*) type=nvme ;;
+            vd*)   type=virtio ;;
+            *)     type=sata ;;
+          esac
+          if [ "$action" = add ]; then
+            for _ in 1 2 3 4 5; do
+              size=$(lsblk -dn -o SIZE "$dev" 2>/dev/null | tr -d ' ')
+              [ -n "$size" ] && [ "$size" != 0B ] && break
+              sleep 1
+            done
+            event=added
+          else
+            event=removed
+          fi
+          body="{\"action\":\"$event\",\"device\":\"$dev\",\"device_type\":\"$type\"}"
+          sock=/run/dplaneos/dplaned.sock
+          token=$(cat /run/dplaneos/internal-token 2>/dev/null) || exit 0  # daemon not running
+          curl -sf --max-time 10 --unix-socket "$sock" -X POST -H 'Content-Type: application/json' \
+            -H "X-Internal-Token: $token" -d "$body" http://localhost/api/internal/disk-event >/dev/null || true
+        '';
+      in ''
+        ACTION=="add|remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*|nvme*|vd*", ENV{ID_BUS}!="usb", RUN+="${config.systemd.package}/bin/systemd-run --no-block --quiet --collect ${notify} $env{ACTION} $env{DEVNAME}"
+      '';
+
     # NVMe-oF target (kernel nvmet) - modules load at boot; dplaned writes configfs at runtime.
     # fuse is included here for rclone cold tier FUSE mounts (managed by dplaned at runtime).
     # tun is required for OpenVPN and Tailscale Docker containers (/dev/net/tun device node).
@@ -413,6 +505,15 @@ in {
       upstreams."dplaned".servers."unix:${cfg.socketPath}" = {};
       virtualHosts."_" = {
         root       = "${cfg.frontendPackage}";
+        # Security headers for every response (no location sets its own,
+        # which would drop these).
+        extraConfig = ''
+          add_header X-Frame-Options "SAMEORIGIN" always;
+          add_header X-Content-Type-Options "nosniff" always;
+          add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';" always;
+          add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+          add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        '';
         locations."/" = {
           tryFiles = "$uri $uri/ /index.html";
         };

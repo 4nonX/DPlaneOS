@@ -1,12 +1,11 @@
 /**
  * pages/SettingsPage.tsx - System Settings
  *
- * Tabs: General | NixOS | SSO / OIDC | Security | License | Features | Maintenance
+ * Tabs: General | NixOS | SSO / OIDC | Security | Features | Maintenance
  *
  * General: hostname, timezone, MOTD - backed by /api/system/settings (key-value store)
  * NixOS: detect, validate, apply (with 60s confirm), generations list & rollback
  * Security: AES-256-GCM key rotation  POST /api/system/secrets/rotate
- * License: activation, status, CE integration
  * Features: enable/disable optional features, hardware requirements
  * Maintenance: configuration backup/restore (database and files)
  *
@@ -39,7 +38,6 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
-import { pluginSettingsInject } from '../plugins'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,19 +88,17 @@ function GeneralTab() {
     queryFn:  ({ signal }) => api.get<SettingsResponse>('/api/system/settings', signal),
   })
 
-  const [dirty, setDirty] = useState<{ hostname?: string; timezone?: string; motd?: string; licenseKey?: string }>({})
+  const [dirty, setDirty] = useState<{ hostname?: string; timezone?: string; motd?: string }>({})
   const [autoReconcile, setAutoReconcile] = useState(false)
 
   const s = settingsQ.data?.settings
   const hostname   = dirty.hostname   ?? s?.['hostname']    ?? ''
   const timezone   = dirty.timezone   ?? s?.['timezone']    ?? ''
   const motd       = dirty.motd       ?? s?.['motd']        ?? ''
-  const licenseKey = dirty.licenseKey ?? s?.['license_key'] ?? ''
 
   const setHostname   = (v: string) => setDirty(p => ({ ...p, hostname: v }))
   const setTimezone   = (v: string) => setDirty(p => ({ ...p, timezone: v }))
   const setMotd       = (v: string) => setDirty(p => ({ ...p, motd: v }))
-  const setLicenseKey = (v: string) => setDirty(p => ({ ...p, licenseKey: v }))
 
   const diffQ = useQuery({
     queryKey: ['nixos', 'diff-intent'],
@@ -119,7 +115,6 @@ function GeneralTab() {
       if (hostname.trim()) body['hostname'] = hostname.trim()
       if (timezone.trim()) body['timezone'] = timezone.trim()
       body['motd'] = motd
-      body['license_key'] = licenseKey
       return api.post('/api/system/settings', body)
     },
     onSuccess: async () => {
@@ -183,21 +178,6 @@ function GeneralTab() {
           rows={4} placeholder="Welcome to DPlaneOS"
           className="input" style={{ resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
       </Field>
-
-      <Field label="Enterprise License Key" hint="Unlocks cryptographic compliance engine and audit automation">
-        <input type="password" value={licenseKey} onChange={e => setLicenseKey(e.target.value)}
-          placeholder="Unlicensed" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
-          Activates optional add-ons (Compliance Engine, advanced HA features). Leave blank for the standard open-source build.
-        </span>
-      </Field>
-
-      {pluginSettingsInject({
-        hostname, setHostname,
-        timezone, setTimezone,
-        motd, setMotd,
-        licenseKey, setLicenseKey
-      }) || null}
 
       <div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 16 }}>
@@ -787,121 +767,6 @@ function MaintenanceTab() {
 }
 
 // ---------------------------------------------------------------------------
-// LicenseTab
-// ---------------------------------------------------------------------------
-
-interface LicenseStatus {
-  active: boolean
-  customer?: string
-  audits_limit?: number
-  audits_remaining?: number
-  expires_at?: string
-  ce_installed?: boolean
-  ce_running?: boolean
-}
-
-function LicenseTab() {
-  const qc = useQueryClient()
-  const [licenseKey, setLicenseKey] = useState('')
-  const [isActivating, setIsActivating] = useState(false)
-
-  const licenseQ = useQuery({
-    queryKey: ['license', 'status'],
-    queryFn: ({ signal }) => api.get<LicenseStatus>('/api/system/license/status', signal),
-    refetchInterval: 30000,
-  })
-
-  const activate = useMutation({
-    mutationFn: (key: string) => api.post('/api/system/license/activate', { license_key: key }),
-    onSuccess: () => {
-      toast.success('License activated. Enterprise features loading...')
-      setLicenseKey('')
-      qc.invalidateQueries({ queryKey: ['license', 'status'] })
-    },
-    onError: (e: Error) => toast.error('Activation failed: ' + e.message),
-  })
-
-  const handleActivate = async () => {
-    if (!licenseKey.trim()) {
-      toast.error('Enter a license key')
-      return
-    }
-    setIsActivating(true)
-    try {
-      await activate.mutateAsync(licenseKey)
-    } finally {
-      setIsActivating(false)
-    }
-  }
-
-  const status = licenseQ.data
-  const isExpired = status?.active === false && status?.expires_at
-
-  return (
-    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 24 }}>
-      {status?.active ? (
-        <div className="card" style={{ padding: 20, borderLeft: '4px solid var(--success)', background: 'rgba(34, 197, 94, 0.05)' }}>
-          <div style={{ fontWeight: 700, marginBottom: 12, color: 'var(--success)' }}>Enterprise License Active</div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
-            <div>Customer: {status.customer}</div>
-            {status.audits_limit === -1 ? (
-              <div>Audits: Unlimited</div>
-            ) : (
-              <div>Audits: {status.audits_remaining} remaining of {status.audits_limit}</div>
-            )}
-            <div>Expires: {status.expires_at === 'never' ? 'Never' : status.expires_at}</div>
-            <div>Compliance Engine: {status.ce_installed ? (status.ce_running ? 'Running' : 'Installed (not running)') : 'Not installed'}</div>
-          </div>
-        </div>
-      ) : isExpired ? (
-        <div className="card" style={{ padding: 20, borderLeft: '4px solid var(--error)', background: 'rgba(200, 0, 0, 0.05)' }}>
-          <div style={{ fontWeight: 700, marginBottom: 12, color: 'var(--error)' }}>License Expired</div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-            Expired on {status.expires_at}. To renew, enter a new license key below.
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="password"
-              placeholder="Paste renewal key"
-              value={licenseKey}
-              onChange={e => setLicenseKey(e.target.value)}
-              disabled={isActivating}
-              style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 4 }}
-            />
-            <button onClick={handleActivate} disabled={isActivating || !licenseKey.trim()} className="btn btn-primary">
-              {isActivating ? 'Activating...' : 'Activate'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 20, borderLeft: '4px solid var(--border)' }}>
-          <div style={{ fontWeight: 700, marginBottom: 12 }}>Enterprise License</div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-            Status: Not activated
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <input
-              type="password"
-              placeholder="Paste license key"
-              value={licenseKey}
-              onChange={e => setLicenseKey(e.target.value)}
-              disabled={isActivating}
-              style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 4 }}
-            />
-            <button onClick={handleActivate} disabled={isActivating || !licenseKey.trim()} className="btn btn-primary">
-              {isActivating ? 'Activating...' : 'Activate'}
-            </button>
-          </div>
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-            For licensing, refer to the DPlaneOS documentation or contact the maintainer.
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // FeaturesTab
 // ---------------------------------------------------------------------------
 
@@ -1038,7 +903,7 @@ function FeaturesTab() {
 // SettingsPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'general' | 'nixos' | 'oidc' | 'security' | 'license' | 'features' | 'maintenance'
+type Tab = 'general' | 'nixos' | 'oidc' | 'security' | 'features' | 'maintenance'
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('general')
@@ -1048,7 +913,6 @@ export function SettingsPage() {
     { id: 'nixos',       label: 'NixOS',       icon: 'terminal' },
     { id: 'oidc',        label: 'SSO / OIDC',  icon: 'key' },
     { id: 'security',    label: 'Security',    icon: 'lock' },
-    { id: 'license',     label: 'License',     icon: 'card_membership' },
     { id: 'features',    label: 'Features',    icon: 'extension' },
     { id: 'maintenance', label: 'Maintenance', icon: 'database' },
   ]
@@ -1072,7 +936,6 @@ export function SettingsPage() {
       {tab === 'nixos'       && <NixOSTab />}
       {tab === 'oidc'        && <OIDCTab />}
       {tab === 'security'    && <SecurityTab />}
-      {tab === 'license'     && <LicenseTab />}
       {tab === 'features'    && <FeaturesTab />}
       {tab === 'maintenance' && <MaintenanceTab />}
     </div>

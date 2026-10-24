@@ -29,6 +29,9 @@ type Ops struct {
 	Export      func(name string) error
 	// Uncache keeps a pool out of the boot-time import (cachefile=none).
 	Uncache func(name string) error
+	// SharedPools records the pools of shared groups for the boot-time
+	// import, which skips them (SharedPoolsFile).
+	SharedPools func(names []string) error
 }
 
 // DefaultOps use zpool through the command whitelist.
@@ -70,6 +73,41 @@ var DefaultOps = Ops{
 		}
 		return nil
 	},
+	SharedPools: func(names []string) error { return writeSharedPools(SharedPoolsFile, names) },
+}
+
+// writeSharedPools writes the list atomically (the boot reads it after a
+// power loss too).
+func writeSharedPools(path string, names []string) error {
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString(n)
+		b.WriteByte('\n')
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(b.String()); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
+	return nil
 }
 
 // rescanDisks prepares an import of a pool another node used: it drops the
@@ -160,6 +198,7 @@ type Manager struct {
 	absentSince map[string]time.Time // members first seen not answering
 	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
 	uncached    map[string]bool
+	sharedList  *string           // the shared pool list last written (nil: not yet)
 	addrApplied map[string]string // group → "iface|cidr" put on this node
 	moving      map[string]bool   // planned moves in progress: activation leaves these alone
 	peerMaint   map[string]bool   // members' maintenance mode, as last reported
@@ -635,6 +674,7 @@ func (m *Manager) SyncOnce() error {
 			}
 		}
 	}
+	m.recordSharedPools()
 	m.reconcileOwned(peers)
 	return errors.Join(errs...)
 }

@@ -79,7 +79,6 @@ func main() {
 	convergenceCheck := flag.Bool("convergence-check", false, "Verify if system has converged and exit (CONVERGED|NOT_CONVERGED)")
 	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
-	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	upsEventGroup := flag.String("ups-event-group", "", "Group that may send UPS events to /run/dplaneos/ups-events.sock (upsmon's notify command; empty: root only)")
@@ -323,9 +322,6 @@ func main() {
 		log.Fatalf("Seed defaults failed: %v", err)
 	}
 
-	// Phase 6.2: Bootstrap CE Token if provided
-	bootstrapCEToken(db, *ceTokenFile)
-
 	// Ensure reconciler tables exist (network state persistence for non-NixOS)
 	if err := reconciler.EnsureSchema(db); err != nil {
 		log.Printf("WARNING: reconciler schema failed: %v", err)
@@ -564,9 +560,10 @@ func main() {
 	// Start background audit log rotation
 	StartAuditRotation(db)
 
-	// Generate a per-boot random token for internal cron-hook endpoints.
-	// The token is never written to disk; systemd unit files are regenerated
-	// each time schedules are saved, picking up the current runtime value.
+	// Generate a per-boot random token for the internal hook endpoints
+	// (timers, disk events). It lives only in RAM: the timer units embed it
+	// (runtime units, rewritten at every start) and the udev disk-event
+	// helper reads it from internalTokenFile (tmpfs, root only).
 	cronTokenBytes := make([]byte, 32)
 	if _, err := cryptorand.Read(cronTokenBytes); err != nil {
 		log.Fatalf("Failed to generate internal cron token: %v", err)
@@ -574,6 +571,9 @@ func main() {
 	cronToken := fmt.Sprintf("%x", cronTokenBytes)
 	handlers.SetCronToken(cronToken)
 	hardware.SetCronToken(cronToken)
+	if err := os.WriteFile(internalTokenFile, []byte(cronToken), 0o600); err != nil {
+		log.Printf("WARN: %s: %v (disk hot-swap events will be refused)", internalTokenFile, err)
+	}
 
 	// Create router
 	r := mux.NewRouter()
@@ -665,12 +665,8 @@ func main() {
 	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
 	r.Handle("/api/system/diagnostics", permRoute("system", "read", systemHandler.RunDiagnostics)).Methods("POST", "OPTIONS")
 
-	// Enterprise license handlers
-	r.Handle("/api/system/license/activate", permRoute("system", "admin", handlers.LicenseActivateHandler(db))).Methods("POST")
-	r.Handle("/api/system/license/status", permRoute("system", "read", handlers.LicenseStatusHandler(db))).Methods("GET")
-
 	// SMART handlers
-	r.HandleFunc("/api/hardware/smart/cron-hook", handlers.RunSMARTCronHook).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/cron-hook", internalOnly(cronToken, handlers.RunSMARTCronHook)).Methods("POST")
 	r.Handle("/api/hardware/smart/run-now", permRoute("system", "write", handlers.RunSMARTNow)).Methods("POST")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "read", handlers.ListSMARTSchedules)).Methods("GET")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "write", handlers.AddSMARTSchedule)).Methods("POST")
@@ -837,7 +833,6 @@ func main() {
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
 	r.Handle("/api/system/audit/logs", permRoute("audit", "read", auditRotationHandler.GetAuditLogs)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
-	r.Handle("/api/system/ce-status", permRoute("system", "read", auditRotationHandler.GetCEStatus)).Methods("GET")
 
 	secretsRotationHandler := handlers.NewSecretsRotationHandler(db, *secretsKeyPath)
 	r.Handle("/api/system/secrets/rotate", permRoute("system", "admin", secretsRotationHandler.RotateKeys)).Methods("POST")
@@ -1265,8 +1260,9 @@ func main() {
 	r.Handle("/api/zfs/pool/importable", permRoute("storage", "read", handlers.HandleListImportablePools)).Methods("GET")
 	r.Handle("/api/zfs/pool/import", permRoute("storage", "write", handlers.HandleImportPool)).Methods("POST")
 
-	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)
-	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")
+	// Disk lifecycle events from the udev helper (the handler requires the
+	// per-boot internal token, whatever session the request carries)
+	r.HandleFunc("/api/internal/disk-event", internalOnly(cronToken, handlers.HandleDiskEvent)).Methods("POST")
 
 	// Files handlers
 	filesHandler := handlers.NewFilesExtendedHandler()
@@ -1304,7 +1300,7 @@ func main() {
 	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.UpdateRsyncSchedule))).Methods("PUT")
 	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteRsyncSchedule))).Methods("DELETE")
 	r.Handle("/api/backup/rsync/schedules/{id}/run", permRoute("storage", "write", http.HandlerFunc(handlers.RunRsyncScheduleNow))).Methods("POST")
-	r.Handle("/api/backup/rsync/cron-hook", http.HandlerFunc(handlers.RsyncCronHook)).Methods("POST")
+	r.HandleFunc("/api/backup/rsync/cron-hook", internalOnly(cronToken, handlers.RsyncCronHook)).Methods("POST")
 
 	// Cloud Sync (rclone-based)
 	cloudSyncHandler := handlers.NewCloudSyncHandler()
@@ -1421,7 +1417,7 @@ func main() {
 	r.Handle("/api/snapshots/schedules", permRoute("storage", "write", snapScheduleHandler.SaveSchedules)).Methods("POST")
 	r.Handle("/api/snapshots/run-now", permRoute("storage", "write", snapScheduleHandler.RunNow)).Methods("POST")
 	// Cron hook: called by generated systemd timer on localhost (no user session, bypassed by sessionMiddleware IP+token check)
-	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
+	r.HandleFunc("/api/zfs/snapshots/cron-hook", internalOnly(cronToken, snapScheduleHandler.RunCronHook)).Methods("POST")
 
 	// Re-install schedule timers from saved schedules. The units embed this
 	// boot's internal token (a fresh one each start), and on NixOS they are
@@ -1675,15 +1671,6 @@ func main() {
 	handlers.StartCapacityMonitor()
 	log.Println("Capacity guardian started (checks every 5 min)")
 
-	// Start license expiration checker
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			handlers.CheckLicenseExpiration(db)
-		}
-	}()
-
 	// Start server in goroutine
 	go func() {
 		log.Printf("Listening on %s", *listenAddr)
@@ -1870,11 +1857,10 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// Voters (corosync-only members): one-time code or pull token,
 				// checked by the handlers
 				strings.HasPrefix(p, "/api/quorum/voter/") ||
-				// Internal hooks - called by systemd timers on this host.
-				// Mandatory check: local caller AND the per-boot random token.
+				// Internal hooks - called by systemd timers and the udev
+				// disk-event helper on this host. Mandatory check: local
+				// caller AND the per-boot random token.
 				isInternalCronHook(r, internalCronToken) ||
-				// Internal disk events - called by udev scripts on localhost
-				p == "/api/internal/disk-event" ||
 				// Prometheus metrics - scraped by external monitoring without session
 				p == "/metrics" {
 				next.ServeHTTP(w, r)
@@ -1991,7 +1977,7 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				defer cancel()
 				csrfHeader := r.Header.Get("X-CSRF-Token")
 				var storedCSRF string
-				err := db.QueryRowContext(ctx, "SELECT csrf_token FROM sessions WHERE session_id = $1", sessionID).Scan(&storedCSRF)
+				err := db.QueryRowContext(ctx, "SELECT csrf_token FROM sessions WHERE session_id = $1", security.SessionKey(sessionID)).Scan(&storedCSRF)
 				if err != nil {
 					// The token cannot be checked: refuse (a security check
 					// must not pass because the database is slow).
@@ -2052,58 +2038,29 @@ func runRotation(db *sql.DB) {
 	log.Printf("MAINTENANCE: Audit log rotation completed successfully")
 }
 
-// bootstrapCEToken reads a token from a file and ensures it exists in api_tokens for the admin user.
-func bootstrapCEToken(db *sql.DB, path string) {
-	if path == "" {
-		return
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to read CE token file %s: %v", path, err)
-		return
-	}
-	token := strings.TrimSpace(string(content))
-	if token == "" {
-		return
-	}
-
-	// We assume token is the raw token. DPlaneOS stores token_hash and token_prefix.
-	// For simplicity in this bootstrap, we store it if no token named 'nixos-gitops' exists.
-	var adminID int
-	err = db.QueryRow("SELECT id FROM users WHERE username='admin'").Scan(&adminID)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to find admin user: %v", err)
-		return
-	}
-
-	// security.GenerateTokenHash is what we would normally use, but we don't want to re-hash on every boot.
-	// Actually, let's just check if a token with this prefix exists.
-	prefix := ""
-	if len(token) > 8 {
-		prefix = token[:8]
-	}
-
-	var exists int
-	db.QueryRow("SELECT COUNT(*) FROM api_tokens WHERE name='compliance-engine-token'").Scan(&exists)
-	if exists > 0 {
-		return // Already bootstrapped
-	}
-
-	// Use security package to hash it correctly
-	hash := security.HashToken(token)
-	_, err = db.Exec(`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes)
-		VALUES ($1, 'compliance-engine-token', $2, $3, 'admin')`,
-		adminID, hash, prefix)
-	if err != nil {
-		log.Printf("BOOTSTRAP: Failed to insert CE token: %v", err)
-	} else {
-		log.Printf("BOOTSTRAP: Compliance Engine API token injected for admin")
+// internalOnly guards the internal hooks (timers, the udev disk-event
+// helper). The session middleware lets their callers through with the token,
+// but also lets any logged-in user through to them, whatever the role: the
+// hooks have no permission of their own. Refuse every request without this
+// boot's token.
+func internalOnly(token string, fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isInternalCronHook(r, token) {
+			http.Error(w, "Forbidden: internal hook", http.StatusForbidden)
+			return
+		}
+		fn(w, r)
 	}
 }
 
+// internalTokenFile holds this boot's internal hook token for local
+// helpers that are not generated by the daemon (the udev disk-event helper).
+const internalTokenFile = "/run/dplaneos/internal-token"
+
 func isInternalCronHook(r *http.Request, token string) bool {
 	switch r.URL.Path {
-	case "/api/zfs/snapshots/cron-hook", "/api/hardware/smart/cron-hook", "/api/backup/rsync/cron-hook":
+	case "/api/zfs/snapshots/cron-hook", "/api/hardware/smart/cron-hook", "/api/backup/rsync/cron-hook",
+		"/api/internal/disk-event":
 	default:
 		return false
 	}

@@ -191,17 +191,17 @@ For single-path iSCSI, clients will disconnect and reconnect on failover. This i
 
 ## GitOps / Automation
 
-DPlaneOS manages configuration through `state.yaml`. This can be committed to a Git repository and pushed to trigger reconciliation.
+DPlaneOS can keep its configuration in a Git repository as `state.yaml` files (see [Git-Driven NAS](GITOPS-DRIVEN-NAS.md)). A pipeline changes the configuration by pushing to that repository: with a push notification (webhook) and **Apply automatically** on, the change is applied within seconds; otherwise it waits for approval on the Git page. Either way the commit gets a status (`dplaneos: success` or the reason it failed) on GitHub, Gitea/Forgejo or GitLab, which the pipeline can wait for.
 
-### Integrate with CI/CD
+### One-off apply on the machine
 
-The daemon accepts `-apply` to apply a state file and exit non-zero on failure. This allows GitOps pipelines to drive configuration changes:
+`dplaned -apply` applies a state file once and exits non-zero on failure. It needs the daemon's database and secrets key (`systemctl cat dplaned` shows both):
 
 ```bash
-# In CI:
-scp state.yaml nas:/var/lib/dplaneos/gitops/state.yaml
-ssh nas 'dplaned -apply -gitops-state /var/lib/dplaneos/gitops/state.yaml'
+sudo dplaned -db-dsn "<DSN>" -secrets-key <key> -apply -gitops-state ./state.yaml
 ```
+
+A change made this way is recorded in the change history like any other change made outside the web interface.
 
 ### Direct API
 
@@ -211,13 +211,6 @@ All operations available in the UI are available via the REST API. The API token
 
 ## HA Timing Tuning
 
-The failover threshold and hysteresis window are now runtime-configurable (changed in v14.0.0):
-
-```
-GET  /api/ha/timing  - read current values
-POST /api/ha/timing  - update values (requires AAL2)
-```
-
 Failover timing follows the watchdog: the takeover starts the watchdog timeout plus 15 seconds after the owner left the quorate partition (set the timeout under HA › Watchdog and power fencing).
 
 ## Docker and Hardware Video Transcoding
@@ -226,7 +219,7 @@ DPlaneOS ships Docker and docker-compose in the running system. Containers have 
 
 ### Intel hardware transcoding (Jellyfin, Plex, Handbrake)
 
-Intel VA-API hardware video transcoding is supported via `intel-media-driver` (iHD, for Gen 9-12 including Raptor Lake) and `intel-compute-runtime` (OpenCL). These are included in the running system by default:
+Intel VA-API hardware video transcoding is supported via `intel-media-driver` (iHD, for Gen 9-12 including Raptor Lake) and `intel-compute-runtime` (OpenCL). They are part of the system (x86_64) from its first update on; the installer ISO leaves them out (see below):
 
 ```nix
 hardware.graphics = {
@@ -256,24 +249,20 @@ nix-shell -p libva-utils --run "vainfo"
 
 The installer ISO embeds the core DPlaneOS system for airgapped installation but excludes `intel-media-driver` and `intel-compute-runtime` to keep the ISO within a manageable size (~2 GB). These packages grew substantially in nixpkgs 26.05 (~400 MB combined).
 
-**On a system installed from ISO without internet access:**
-
-Hardware transcoding will not be available immediately after installation. To enable it once the system is on the network:
+**On a system installed from the ISO** (with or without network: the installer always installs the ISO's system), hardware transcoding is not available until the first update (System › System Updates), or a rebuild once the system is on the network:
 
 ```bash
-nixos-rebuild switch
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 This fetches the packages from `cache.nixos.org` and activates VA-API. All other NAS functionality (ZFS, SMB, NFS, iSCSI, NVMe-oF, HA, Docker) works immediately from an offline install.
-
-**On a system installed from ISO with internet access**, or on any system that was deployed via GitOps (not from ISO), the packages are present from the first boot.
 
 ### GPU passthrough to VMs
 
 GPU passthrough (VFIO) to virtual machines or containers does not require `intel-media-driver` or `intel-compute-runtime` on the host. The host needs:
 
 - `kvm-intel` kernel module (included)
-- IOMMU enabled: add `intel_iommu=on iommu=pt` to `boot.kernelParams` in your NixOS configuration
+- IOMMU enabled: add `boot.kernelParams = [ "intel_iommu=on" "iommu=pt" ];` to `/etc/nixos/local.nix` and rebuild
 - The GPU bound to `vfio-pci` before the host driver claims it
 
 The guest VM installs its own GPU drivers. No special host-side GPU software is required beyond the VFIO kernel modules.

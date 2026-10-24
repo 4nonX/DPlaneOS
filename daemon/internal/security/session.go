@@ -71,7 +71,7 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		AND COALESCE(status, 'active') = 'active'
 	`
 
-	err := db.QueryRowContext(ctx, query, sessionID, username, now, now, idleTimeout).Scan(&count)
+	err := db.QueryRowContext(ctx, query, SessionKey(sessionID), username, now, now, idleTimeout).Scan(&count)
 	if err != nil {
 		// FAIL-CLOSED: Reject on ANY error (no fallback!)
 		return false, fmt.Errorf("session validation failed: %w", err)
@@ -79,7 +79,7 @@ func ValidateSession(sessionID, username string) (bool, error) {
 
 	if count > 0 {
 		// Update last_activity timestamp (touch session)
-		db.ExecContext(ctx, "UPDATE sessions SET last_activity = $1 WHERE session_id = $2", now, sessionID)
+		db.ExecContext(ctx, "UPDATE sessions SET last_activity = $1 WHERE session_id = $2", now, SessionKey(sessionID))
 		return true, nil
 	}
 
@@ -104,7 +104,7 @@ func GetUserFromSession(sessionID string) (string, error) {
 		LIMIT 1
 	`
 
-	err := db.QueryRowContext(ctx, query, sessionID, time.Now().Unix()).Scan(&username)
+	err := db.QueryRowContext(ctx, query, SessionKey(sessionID), time.Now().Unix()).Scan(&username)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", fmt.Errorf("session not found")
@@ -191,7 +191,7 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		LIMIT 1
 	`
 
-	err := db.QueryRowContext(ctx, query, sessionToken, time.Now().Unix()).Scan(
+	err := db.QueryRowContext(ctx, query, SessionKey(sessionToken), time.Now().Unix()).Scan(
 		&user.ID, &user.Username, &user.Email, &sessionStatus, &sessionAAL,
 	)
 	if err != nil {
@@ -208,6 +208,11 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 	}
 	return &user, nil
 }
+
+// SessionKey is what the sessions table stores for a session token: its
+// SHA-256. A copy of the table (a backup, a database dump) holds no token a
+// browser could log in with.
+func SessionKey(token string) string { return HashToken(token) }
 
 // HashToken hashes a raw token for lookup (mirrored from handlers/api_tokens.go)
 func HashToken(raw string) string {
@@ -304,12 +309,13 @@ func GetUserSessions(username string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
-// RevokeSession marks a session as revoked
-func RevokeSession(sessionID string) error {
+// RevokeSession marks a session as revoked. key is the stored key (the id
+// GetUserSessions lists), not the token.
+func RevokeSession(key string) error {
 	if db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	_, err := db.Exec("UPDATE sessions SET status = 'revoked' WHERE session_id = $1", sessionID)
+	_, err := db.Exec("UPDATE sessions SET status = 'revoked' WHERE session_id = $1", key)
 	return err
 }

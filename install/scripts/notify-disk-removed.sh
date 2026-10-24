@@ -22,8 +22,9 @@ DAEMON_SOCK=/run/dplaneos/dplaned.sock
 logger -t dplaneos "Disk removed: $DEVICE (type=$TYPE serial=$SERIAL)"
 
 # POST event to daemon HTTP API
+TOKEN=$(cat /run/dplaneos/internal-token 2>/dev/null) || exit 0  # daemon not running
 curl -sf --max-time 5 --unix-socket "$DAEMON_SOCK" -X POST "http://localhost/api/internal/disk-event" \
-    -H "Content-Type: application/json" \
+    -H "Content-Type: application/json" -H "X-Internal-Token: $TOKEN" \
     -d "{\"action\":\"removed\",\"device\":\"$DEVICE\",\"device_type\":\"$TYPE\",\"serial\":\"$SERIAL\"}" || true
 
 exit 0

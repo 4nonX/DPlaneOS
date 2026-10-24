@@ -1,37 +1,27 @@
 # DPlaneOS - Showstopper Mitigation Guide
 
-**Updated:** 2026-05-21
+**Updated:** 2026-10-24
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
 
 ---
 
 ## Status Key
 
-- **RESOLVED** - was a showstopper in an earlier version, fully addressed
-- **PARTIAL** - real implementation exists with documented limitations
-- **OPEN** - genuine limitation in the current version
+- **OPEN** - genuine limitation in the current version; everything else below is in place, with its limits listed
 
 ---
 
-## RESOLVED - Replication Was Simulated
+## Replication
 
-### What the Old Guide Said
+The replication engine lives in `daemon/internal/handlers/` and performs:
 
-> `app/api/replication.php` line 121: `// Send snapshot (simulated)` - the GUI returns "success" but does nothing.
-
-### Current State
-
-`app/api/replication.php` does not exist. The PHP layer was replaced by the Go daemon.
-
-The implementation lives in `daemon/internal/handlers/` and performs:
-
-- Full `zfs send | ssh zfs recv` pipe - no shell, no string interpolation, discrete argv
-- Incremental sends (`-i base_snapshot`) with last-replicated-snapshot tracking across runs
-- Compressed streams (`-c` flag)
+- `zfs send | ssh zfs recv` as separate processes linked by pipes - no shell, no string interpolation, discrete argv
+- Incremental sends from the newest snapshot both sides share (matched by GUID); without one, a run stops instead of overwriting the peer's copy, unless "replicate from scratch" is enabled
+- Raw sends for encrypted datasets (the peer never needs the key); compressed streams otherwise
 - Resume tokens for interrupted transfers (checked before every send when enabled)
-- Rate limiting via `pv` with graceful degraded-mode fallback when `pv` is not installed
-- Input validation on all shell-bound fields (snapshot name, dataset, host, user, port, resume token)
-- SSH host key pinning: TOFU fingerprint captured on first authorize/test, written to a per-transfer temp known_hosts file so the `ssh` binary enforces it on every ZFS send
+- Rate limiting via `pv`
+- Input validation on all fields that reach a command (snapshot name, dataset, host, user, port, resume token)
+- SSH host key pinning: the fingerprint is captured on the first authorize/test (TOFU) and enforced on every ZFS send
 
 SSH connectivity and ZFS readiness can be verified at any time via the Test button in the Peers tab.
 
@@ -48,15 +38,9 @@ For air-gapped or high-security hosts where password authentication is disabled,
 
 ---
 
-## RESOLVED - Scalable Database Infrastructure
+## Database
 
-### What the Old Guide Said
-
-> Requires PostgreSQL (+100–200 MB RAM). Raspberry Pi users and low-RAM systems are affected.
-
-### Current State
-
-The system uses PostgreSQL for all metadata and configuration. While this adds a small RAM footprint (~150 MB for PostgreSQL), it provides the concurrency and reliability required for enterprise-grade HA. SQLite is no longer supported for production deployments.
+Every node has its own PostgreSQL database for all metadata and configuration; paired nodes exchange configuration, they do not share a database.
 
 Resource profile:
 
@@ -66,13 +50,7 @@ Resource profile:
 
 ---
 
-## RESOLVED - No Upgrade Rollback
-
-### What the Old Guide Said
-
-> If a v4 upgrade fails the system can be "bricked". No rollback mechanism exists.
-
-### Current State
+## Upgrade Rollback
 
 An update builds the new release as a new NixOS generation and reboots into it. After the boot, a check (up to five minutes) verifies:
 
@@ -92,13 +70,7 @@ If the system will not boot at all: select the previous NixOS generation from th
 
 ---
 
-## RESOLVED - High Availability
-
-### What the Old Guide Said
-
-> No clustering, no failover, no redundancy. HA requires fundamental redesign.
-
-### Current State
+## High Availability
 
 High availability is built from node-local databases with configuration exchange, a Corosync cluster with a third vote, storage groups (shared storage or ZFS replication) and protection layers (watchdog self-fencing, ZFS multihost, SCSI-3 persistent reservations, optional IPMI/PDU power fencing). The earlier Patroni/etcd/HAProxy/keepalived stack has been removed. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md) and [THIRD-VOTE.md](../admin/THIRD-VOTE.md).
 
@@ -124,25 +96,19 @@ The Go daemon (`dplaned`) ships as a compiled binary. Users who require source-l
 
 ### Mitigation: Build from Source
 
-The full daemon source is included in the release tarball under `daemon/`.
+The full source is in the repository and in the release tarball. The system is built from the flake, so the daemon on an installed system is a Nix store path that can be rebuilt from the same release and compared:
 
 ```bash
-CGO_ENABLED=0 go build -mod=vendor \
-  -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
-  -o dplaned-local ./cmd/dplaned/
-
-# Compare with shipped binary
-sha256sum dplaned-local /opt/dplaneos/daemon/dplaned
-
-# Deploy your build
-sudo systemctl stop dplaned
-sudo install -m 755 dplaned-local /opt/dplaneos/daemon/dplaned
-sudo systemctl start dplaned
+git clone https://github.com/4nonX/DPlaneOS && cd DPlaneOS && git checkout v16.0.1
+nix build .#dplaneos-daemon-cgo --print-out-paths       # the daemon the appliance runs
+systemctl cat dplaned | grep -o '/nix/store/[^/]*-dplaneos-daemon-cgo-[^/]*'   # on the NAS
 ```
+
+The same release gives the same store path on the same architecture (Nix hashes every input; an x86_64 and an ARM64 node of one release have different store paths). `nix build .#iso` builds the installer ISO, and `nix store verify` checks a store path's contents.
 
 ### Reproducible Builds
 
-Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`flake.lock`). Bit-for-bit identical system closures across all nodes. Build the ISO or system closure yourself with `nix build .#iso` - the result is deterministic.
+Every build comes from the pinned flake with locked inputs (`flake.lock`): all nodes of a release with the same architecture run the same store paths. Nix makes the inputs reproducible; the outputs are not checked bit-for-bit.
 
 ---
 
@@ -152,7 +118,7 @@ Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`
 |---|---|---|
 | Home NAS | Ready | No caveats |
 | Homelab / learning | Ready | Ideal use case |
-| Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
+| Small office (< 20 users) | Ready | |
 | Offsite backup / replication | Ready | Zero-touch via Peers tab; one-time password authorization, unattended thereafter |
 | Monitored active/standby | Ready | Storage groups with automatic failover (third vote + fencing) |
 | Security audit required | Usable | Build from source; NixOS flake guarantees reproducibility |
@@ -174,10 +140,10 @@ Shipped items verified in product and docs:
 | Resume tokens for interrupted transfers | Done |
 | Bandwidth throttling via pv (graceful degraded-mode fallback) | Done |
 | Full CRUD for Peers and Schedules | Done |
-| Native PostgreSQL HA | Done |
+| Configuration exchange between node-local databases | Done |
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (automated failover) |
-| Reproducible build verification | Done (NixOS Flake, pinned inputs) |
+| Build verification | Done (NixOS flake, pinned inputs, comparable store paths) |
 | Automated failover with fencing | Done |
 | Active Directory domain join | Done |
 | Offline installer ISO | Done |

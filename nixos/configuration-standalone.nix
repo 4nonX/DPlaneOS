@@ -114,12 +114,10 @@
   # ─── ZFS ────────────────────────────────────────────────────────────────
   boot.supportedFilesystems = [ "zfs" ];
 
-  # hostId MUST be unique per machine : ZFS uses it to prevent two systems
-  # from importing the same pool simultaneously (data corruption risk).
-  # Do NOT hardcode a shared value here.
-  # setup-nixos.sh generates this from /etc/machine-id on first-boot setup.
-  # Manual generation: head -c 8 /etc/machine-id
-  networking.hostId = "00000000";  # !! setup-nixos.sh replaces this
+  # ZFS requires networking.hostId to be set. It is one value for every
+  # system built from this flake: an installed system uses its own host ID
+  # instead, created once and kept in /persist/etc/hostid (impermanence.nix).
+  networking.hostId = "00000000";
 
   # ZFS ARC: cap at 16 GiB so Docker containers always have headroom.
   # 32 GB RAM - 16 GiB ARC - OS = comfortable margin for containers.

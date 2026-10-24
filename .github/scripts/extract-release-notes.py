@@ -22,7 +22,14 @@ def extract_notes(version, changelog_path):
     notes = match.group(1).strip()
     
     # Add a footer with installation instructions
-    footer = f"\n\n---\n\n### 🚀 Installation\n\n```bash\ncurl -fsSL https://get.dplaneos.io | sudo bash -s -- --version {version}\n```"
+    footer = (
+        "\n\n---\n\n### Installation\n\n"
+        f"- **New install:** write `dplaneos-v{version}-installer-amd64.iso` (or `-arm64`) to a USB stick and boot it in UEFI mode; "
+        "see the [Installation Guide](https://github.com/4nonX/DPlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md).\n"
+        f"- **Try it without installing:** `dplaneos-v{version}-live-x86_64.iso` (or `-arm64`).\n"
+        "- **Update an installed system:** System › System Updates; see "
+        "[Updates](https://github.com/4nonX/DPlaneOS/blob/main/docs/admin/OTA-UPDATES.md)."
+    )
     
     return notes + footer
 

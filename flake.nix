@@ -212,7 +212,10 @@
       };
 
     in
-    flake-utils.lib.eachSystem supportedSystems (system:
+    # recursiveUpdate: the per-system packages (daemon, frontend) and the ISO
+    # and witness images below are both under packages.<system>; a plain //
+    # replaced the first set with the second.
+    nixpkgs.lib.recursiveUpdate (flake-utils.lib.eachSystem supportedSystems (system:
       let
         pkgs       = nixpkgs.legacyPackages.${system};
         pkgsStatic = pkgs.pkgsStatic;
@@ -386,7 +389,7 @@
           '';
         };
       }
-    ) //
+    ))
     {
       nixosModules.dplaneos         = import ./nixos/module.nix;
 

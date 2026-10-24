@@ -112,8 +112,8 @@ func (h *HAHandler) ConfigurePDU(w http.ResponseWriter, r *http.Request) {
 // queries dplane-fenced for current reservation status but does NOT run the PROUT
 // write round-trip - that is the operator's explicit action via POST /api/ha/scsi/probe.
 //
-// Path A' (shared_storage): SCSI-3 PR capable disks are in use - hardware arbitrates writes.
-// Path B (replicated):      No PR hardware - ZFS replication + watchdog self-fence.
+// shared_storage: SCSI-3 PR capable disks are in use - hardware arbitrates writes.
+// replicated:     No PR hardware - ZFS replication + watchdog self-fence.
 //
 // GET /api/ha/hardware/detect
 func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
@@ -149,13 +149,13 @@ func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
 	// "shared_storage" if fenced is running with active reservations, or if we
 	// can see SG devices that could support PR. Confirmed only after the probe.
 	provPath := "replicated"
-	provLabel := "Path B: Replicated ZFS (Watchdog + Replication)"
+	provLabel := "Replicated ZFS (watchdog and replication)"
 	provReason := "No SAS/SCSI pool disks found. Use ZFS replication with hardware watchdog self-fence and a quorum witness."
 	probeRequired := false
 
 	if len(poolSGDevices) > 0 || fencedRunning {
 		provPath = "shared_storage"
-		provLabel = "Path A': Shared Storage (SCSI-3 PR + Watchdog)"
+		provLabel = "Shared storage (SCSI-3 PR and watchdog)"
 		probeRequired = true
 		if fencedRunning && len(fencedDevices) > 0 {
 			provReason = fmt.Sprintf("dplane-fenced holds reservations on %d device(s). Run the PROUT probe to confirm these devices reject writes from a second node.", len(fencedDevices))

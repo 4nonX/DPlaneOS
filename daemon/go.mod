@@ -16,6 +16,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.1
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
+	rsc.io/qr v0.2.0
 )
 
 require (

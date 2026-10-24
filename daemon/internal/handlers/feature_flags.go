@@ -1,48 +1,14 @@
 // Package handlers provides HTTP request handlers.
-// feature_gate.go: Middleware to gate API endpoints on feature flags.
+// feature_flags.go: Feature flag API handlers.
 package handlers
 
 import (
+	"dplaned/internal/features"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"dplaned/internal/features"
 )
-
-// FeatureGateMiddleware returns HTTP 412 (Precondition Failed) if a feature is disabled.
-// Registers route-to-feature mappings for automatic gating.
-func FeatureGateMiddleware(featureManager *features.Manager) func(http.Handler) http.Handler {
-	// Map routes to required features
-	routeFeatures := map[string]string{
-		"/api/ha/":              "ha_clustering",
-		"/api/cluster/":         "ha_clustering",
-		"/api/witness/":         "network_witness",
-		"/api/nvmeof/":          "nvmeof_support",
-		"/api/nfs/kerberos":     "kerberos_integration",
-		"/api/compliance/":      "compliance_engine",
-		"/api/system/license/":  "enterprise_licensing",
-	}
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check if this route requires a feature
-			for routePrefix, requiredFeature := range routeFeatures {
-				if strings.HasPrefix(r.URL.Path, routePrefix) {
-					if !featureManager.IsEnabled(requiredFeature) {
-						f, _ := featureManager.Get(requiredFeature)
-						http.Error(w,
-							fmt.Sprintf("Feature %s is not enabled (current state: %s)", requiredFeature, f.State),
-							http.StatusPreconditionFailed) // 412
-						return
-					}
-				}
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
 
 // FeatureFlagsHandler returns GET /api/system/features with all feature states.
 func FeatureFlagsHandler(featureManager *features.Manager) http.HandlerFunc {

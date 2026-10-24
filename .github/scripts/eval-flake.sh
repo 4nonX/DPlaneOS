@@ -18,6 +18,12 @@ drv() { # attribute path
 # The flake's structure and its modules.
 nix flake show "$FLAKE" > /dev/null
 
+# The packages the docs name are there (a shallow merge of the per-system
+# outputs once dropped them all).
+for p in dplaneos-daemon dplaneos-daemon-cgo dplaneos-frontend iso iso-live default; do
+  names "packages.$SYSTEM" | grep -qx "$p" || { echo "ERROR: packages.$SYSTEM.$p is missing"; exit 1; }
+done
+
 count=0
 for kind in packages checks devShells; do
   list=$(names "$kind.$SYSTEM") # a failure here stops the script (set -e)

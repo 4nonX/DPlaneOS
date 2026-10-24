@@ -63,7 +63,7 @@ const SECTION_LABELS: Record<ResultKind, string> = {
   dataset:    'Datasets',
   container:  'Containers',
   share:      'Shares',
-  'ha-node':  'HA Cluster',
+  'ha-node':  'High Availability',
 }
 
 const QUICK_ACTIONS: SearchResult[] = [

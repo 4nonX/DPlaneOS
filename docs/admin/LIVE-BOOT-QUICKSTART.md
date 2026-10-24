@@ -1,6 +1,6 @@
 # D-PlaneOS Live Boot Quick Start
 
-**Live boot mode** lets you run D-PlaneOS directly from USB without installing it to disk. The entire system runs in RAM, and you can trial the software, manage existing ZFS pools, run containers, and optionally install to disk when ready.
+**Live boot mode** lets you run D-PlaneOS directly from USB without installing it to disk. The entire system runs in RAM: you can try the software, manage existing ZFS pools and run containers. To install, use the installer ISO.
 
 **What to expect:**
 - Full D-PlaneOS daemon and UI running from RAM
@@ -15,11 +15,11 @@
 
 ### 1. Download and Flash ISO
 
-Download the latest live boot ISO from [releases](https://github.com/4nonX/D-PlaneOS/releases):
-- **x86_64:** `dplaneos-v14.7.0-live-x86_64.iso` (~3.3 GB)
-- **ARM64:** `dplaneos-v14.7.0-live-arm64.iso` (~3.0 GB)
+Download the latest live boot ISO from [releases](https://github.com/4nonX/DPlaneOS/releases/latest):
+- **x86_64:** `dplaneos-v<version>-live-x86_64.iso` (~1.7 GB)
+- **ARM64:** `dplaneos-v<version>-live-arm64.iso`
 
-Flash to a USB drive (8GB+):
+Flash to a USB drive (4 GB+):
 
 **Linux/macOS:**
 ```bash
@@ -27,7 +27,7 @@ Flash to a USB drive (8GB+):
 lsblk  # or diskutil list
 
 # Flash ISO
-sudo dd if=dplaneos-v14.7.0-live-x86_64.iso of=/dev/sdX bs=4M status=progress
+sudo dd if=dplaneos-v*-live-x86_64.iso of=/dev/sdX bs=4M status=progress
 sudo sync
 ```
 
@@ -37,21 +37,18 @@ Use [balenaEtcher](https://www.balena.io/etcher/) or [Rufus](https://rufus.ie/)
 ### 2. Boot from USB
 
 1. Plug USB into target machine
-2. Boot from USB (F12, Esc, or DEL during startup to enter boot menu)
+2. Boot from USB (F12, Esc, or DEL during startup to enter boot menu); UEFI, or legacy BIOS on x86_64
 3. Select USB drive as boot device
-4. System boots in ~30 seconds
+4. The console logs in as `root` and shows the welcome text; the web interface is up a minute or two later
 
 ### 3. Access the UI
 
 Once booted, open your browser and navigate to:
 ```
-http://<machine-ip>:9000
+http://<machine-ip>/
 ```
 
-Find the machine's IP:
-- Check your router's DHCP client list
-- Or SSH in: `ssh root@<ip>` (no password set yet)
-- Or use serial console if available
+Find the machine's IP on the console (`ip addr show | grep "inet "`) or in your router's DHCP client list. On the first visit, create the admin account (the setup wizard).
 
 ---
 
@@ -60,7 +57,7 @@ Find the machine's IP:
 ### Manage Existing Storage
 
 Your ZFS pools are automatically imported and mounted. In the UI:
-- **View pools** under Storage → Pools
+- **View pools** under Storage › ZFS Pools
 - **Manage datasets** (create, rename, delete, set properties)
 - **Create snapshots** for backup
 - **Configure shares** (SMB, NFS, iSCSI)
@@ -75,18 +72,18 @@ docker ps
 docker run -it ubuntu bash
 
 # Via UI
-Storage → Containers → Add Stack
+Containers › Docker › Compose › New Stack
 # Paste your docker-compose.yml
 ```
 
 ### Command-Line Access
 
-SSH into the live system:
+The console is logged in as `root`. For SSH, set a root password there first (it lasts until shutdown):
 ```bash
-ssh root@<ip>
+passwd                  # on the console
+ssh root@<ip>           # from another machine
 
-# No password required (live mode, ephemeral)
-# Use these commands:
+# Then:
 zpool list              # List pools
 zfs list                # List datasets
 docker ps               # List containers
@@ -96,7 +93,7 @@ systemctl status        # Service status
 ### File Explorer
 
 In the UI:
-- **Storage → File Explorer** lets you browse and upload files
+- **File Explorer** lets you browse and upload files
 - Upload to the mounted ZFS pool
 - Downloaded files persist on the pool (not lost on shutdown)
 
@@ -125,32 +122,14 @@ By default, daemon state and config are **lost on shutdown** (ephemeral mode). T
 ### What Does NOT Persist
 
 - Logs (`/var/log`) and `/tmp`
-- SSH host keys (new ones each boot)
+- SSH host keys (new ones each boot) and the root password
 - Docker images and containers outside ZFS pools
 
 ---
 
-## Advanced: Optional Install to Disk
+## Installing to Disk
 
-If you want to install D-PlaneOS permanently to disk:
-
-### Method 1: Via CLI (Advanced)
-
-```bash
-ssh root@<ip>
-
-# Run the installer (still in development)
-/etc/dplaneos-live/install.sh
-# Follow prompts to select target disk and partition
-```
-
-### Method 2: Via UI (Coming Soon)
-
-A UI-based installer is planned.
-
-### Method 3: Manual (Not Recommended)
-
-Use the [Installation Guide](INSTALLATION-GUIDE.md) to manually install from the ISO.
+The live ISO does not install. Boot the installer ISO (`dplaneos-v<version>-installer-amd64.iso`) instead; see the [Installation Guide](INSTALLATION-GUIDE.md). Pools managed in live mode can be imported on the installed system.
 
 ---
 
@@ -161,19 +140,19 @@ Use the [Installation Guide](INSTALLATION-GUIDE.md) to manually install from the
 If your pools aren't showing up:
 1. Verify drives are connected and detected: `lsblk`
 2. Check auto-import logs: `journalctl -u dplane-zfs-auto-import`
-3. Manually import: `zpool import -a`
+3. `zpool import` lists the pools found and why one was not imported. The live system does not force an import: a pool that another system (the installed system, a cluster node) used last without exporting it stays as it is, because importing a pool on two systems at once can destroy it. When that system is really off, import it with Storage › ZFS Pools → **Import Pool** and confirm *the other system is powered off*.
+4. The live system exports its pools when it shuts down, so the installed system imports them again at its next boot.
 
 ### "Web UI not responding"
 
 1. Verify daemon is running: `systemctl status dplaned`
-2. Check firewall: `sudo ufw status` (should be disabled by default)
-3. Verify port 9000 is listening: `netstat -tlnp | grep 9000`
-4. Check logs: `journalctl -u dplaned -n 50`
+2. Verify the web server: `systemctl status nginx` and `ss -tlnp | grep ':80 '` (the firewall opens 80 and 443)
+3. Check logs: `journalctl -u dplaned -n 50`
 
 ### "Can't SSH into machine"
 
-1. Verify machine is on the network: `ping <ip>`
-2. Verify SSH is running: `netstat -tlnp | grep 22`
+1. Set a root password on the console first: `passwd` (root has none until then)
+2. Verify machine is on the network: `ping <ip>`
 3. Try SSH with verbose output: `ssh -vvv root@<ip>`
 
 ### "Persistence USB not detected"
@@ -184,7 +163,7 @@ If your pools aren't showing up:
 
 ### System Performance Low
 
-Live boot runs in RAM (default 2GB tmpfs for /var). If you see slowdowns:
+Live boot runs in RAM: everything written outside ZFS pools uses memory. If you see slowdowns:
 1. Reduce running containers: `docker ps -a`
 2. Check RAM usage: `free -h`
 3. Monitor disk I/O: `iostat -x 1`
@@ -199,7 +178,7 @@ Live boot runs in RAM (default 2GB tmpfs for /var). If you see slowdowns:
 - **Test Docker workflows** before installation
 - **Backup & replicate** using D-PlaneOS tools
 - **Rescue mission** if existing NAS becomes unavailable
-- **Evaluate feature set** before deciding to install
+- **Evaluate feature set** before deciding to install (with the installer ISO)
 
 ### When Ready to Install
 
@@ -226,11 +205,11 @@ A: It is used from the next boot. Reboot after attaching it; settings made befor
 A: Only if you've attached a `dplane-persist` USB. Without it, state resets after each reboot.
 
 **Q: Will updates work in live mode?**  
-A: OTA updates are disabled in live boot. To upgrade, download a new ISO and reboot.
+A: No. The Updates page says so in live mode. To upgrade, download a new ISO and reboot; a persistence drive is kept.
 
 **Q: Can I access stored files without the daemon?**  
 A: Yes, ZFS pools are standard and can be imported on any Linux system with ZFS tools.
 
 ---
 
-**Need help?** Open an issue on [GitHub](https://github.com/4nonX/D-PlaneOS/issues) or check the [Troubleshooting Guide](TROUBLESHOOTING.md).
+**Need help?** Open an issue on [GitHub](https://github.com/4nonX/DPlaneOS/issues) or check the [Troubleshooting Guide](TROUBLESHOOTING.md).

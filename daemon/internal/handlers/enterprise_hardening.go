@@ -698,26 +698,6 @@ func (h *AuditRotationHandler) GetAuditLogs(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// GetCEStatus checks if the Compliance Engine token exists
-// GET /api/system/ce-status
-func (h *AuditRotationHandler) GetCEStatus(w http.ResponseWriter, r *http.Request) {
-	var count int
-	err := h.db.QueryRow("SELECT COUNT(*) FROM api_tokens WHERE name='compliance-engine-token'").Scan(&count)
-	if err != nil {
-		// Table might not exist in early v7.x or dev envs
-		respondOK(w, map[string]any{
-			"success":               true,
-			"has_compliance_engine": false,
-		})
-		return
-	}
-
-	respondOK(w, map[string]any{
-		"success":               true,
-		"has_compliance_engine": count > 0,
-	})
-}
-
 // ═══════════════════════════════════════════════════════════════
 //  ZOMBIE DISK WATCHER
 //  Monitors ZFS command latency, flags slow-dying disks

@@ -30,7 +30,7 @@ flowchart LR
 
     Browser -->|"static + /api/*"| nginx
     nginx -->|"proxy /api/, /ws/"| dplaned
-    nginx -->|"serve /opt/dplaneos/app"| Browser
+    nginx -->|"serve the UI (Nix store)"| Browser
     dplaned --> PostgreSQL
     dplaned --> ZFS
     dplaned --> Docker
@@ -128,15 +128,15 @@ sequenceDiagram
 ```mermaid
 %%{init: {'theme':'base'}}%%
 flowchart TD
-    A["Physical disk connected"] --> B["udev: 99-dplaneos-hotswap.rules"]
-    B --> C["install/scripts/notify-disk-added.sh"]
-    C --> D["POST /api/internal/disk-event\n(localhost only)"]
+    A["Physical disk connected"] --> B["udev rule (services.udev.extraRules, module.nix)"]
+    B --> C["dplaneos-disk-event (transient unit via systemd-run)"]
+    C --> D["POST /api/internal/disk-event\n(local, with the per-boot internal token)"]
     D --> E["Enrich device\n(by-id, WWN, size, type, temp)"]
     E --> F["Upsert disk registry (PostgreSQL)"]
     F --> G["Broadcast diskAdded WS event"]
     G --> H["2 s settle delay"]
-    H --> I{"Pool importable?"}
-    I -->|Yes| J["libzfs.PoolImportAll(/dev/disk/by-id)"]
+    H --> I{"Member of an imported pool, or of the exported pool it was last seen in here?"}
+    I -->|Yes| J["zpool online the member, or zpool import that pool by GUID"]
     J --> K["Broadcast poolHealthChanged WS event"]
     I -->|No| K
     K --> L{"Faulted vdevs exist?"}

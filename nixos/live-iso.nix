@@ -105,6 +105,7 @@
         zfs list                    # List datasets
         docker ps                   # List containers
         journalctl -u dplaned -f    # Follow daemon logs
+        SSH: set a root password first (passwd), then ssh root@<ip>
 
     💾  PERSISTENCE (Optional)
         System state is ephemeral by default (lost on shutdown).

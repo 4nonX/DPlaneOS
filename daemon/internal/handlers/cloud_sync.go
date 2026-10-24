@@ -28,6 +28,14 @@ func NewCloudSyncHandler() *CloudSyncHandler { return &CloudSyncHandler{} }
 
 const rcloneConfig = "/etc/dplaneos/rclone.conf"
 
+// restrictRcloneConfig keeps the remotes' credentials (rclone's own format,
+// not sealed) readable by root only, whatever mode rclone wrote.
+func restrictRcloneConfig() {
+	if err := os.Chmod(rcloneConfig, 0o600); err != nil && !os.IsNotExist(err) {
+		log.Printf("CLOUD SYNC: %s: %v", rcloneConfig, err)
+	}
+}
+
 func ensureConfigDir() error {
 	return os.MkdirAll("/etc/dplaneos", 0700)
 }
@@ -399,6 +407,7 @@ func (h *CloudSyncHandler) createRemote(w http.ResponseWriter, r *http.Request) 
 		respondErrorSimple(w, "Failed to create remote: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
 		return
 	}
+	restrictRcloneConfig()
 
 	audit.LogAction("cloud_sync", user, fmt.Sprintf("Created remote '%s' (type: %s)", req.Name, req.Type), true, 0)
 	respondJSON(w, http.StatusOK, map[string]any{
@@ -439,6 +448,7 @@ func (h *CloudSyncHandler) updateRemote(w http.ResponseWriter, r *http.Request) 
 		respondErrorSimple(w, "Failed to update remote: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
 		return
 	}
+	restrictRcloneConfig()
 
 	audit.LogAction("cloud_sync", user, fmt.Sprintf("Updated remote '%s'", req.Name), true, 0)
 	respondJSON(w, http.StatusOK, map[string]any{
