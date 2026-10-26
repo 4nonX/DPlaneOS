@@ -12,14 +12,11 @@ This document describes what `dplaned` starts besides its HTTP API, and how it b
 |---|---|---|
 | Resource watcher | `internal/resource` | Every 5 seconds: disk use of `/persist`, the daemon's memory, open file descriptors |
 | Hardware profile | `internal/hardware` | Detected once at startup and logged |
-| Feature flags | `internal/features` | Loaded from the `feature_flags` table; listed and switched under Settings › Features |
 | Circuit breakers | `internal/resilience` | A pool of breakers for external services |
-| Operation journal | `internal/gitops` (`StateMachine`) | The `operation_journal` table; unfinished operations are looked at during startup |
 | Health checker | `internal/monitoring` | Periodic subsystem checks, served at `/api/health` |
 | Event log | `internal/audit` (`EventLogger`) | The HMAC-chained `audit_events` table |
-| Rollback manager | `internal/rollback` | Startup recovery of the operation journal |
 
-They monitor and log. If the bootstrap fails, the daemon logs `hardening phases not started` and starts without them: the API keeps working, the `/api/health` routes are not served and Settings › Features stays empty.
+They monitor and log. If the bootstrap fails, the daemon logs `monitoring not started` and starts without them: the API keeps working and the `/api/health` routes are not served.
 
 ---
 
@@ -65,14 +62,6 @@ The protections that keep data and configuration safe are not in this framework 
 
 ---
 
-## Not active
-
-- The operation journal is in place, but no operation writes to it yet, so the startup recovery finds nothing to resume.
-- Feature flags are stored and shown, but no API route or job checks them: the features they name work whether the flag is on or off.
-- `handlers.ResourceGuardMiddleware` (refuse writes when disk or memory is critical) exists but is not applied to the router.
-
----
-
 ## Tests
 
-Each package has unit tests (`go test ./internal/resource ./internal/monitoring ./internal/rollback ./internal/resilience ./internal/audit`); the NixOS VM tests (`nix build .#checks.x86_64-linux.<name>`) cover the behaviour above on a running system: power loss (`hardening-*`), updates (`update`), pool import at boot and the installer (`installer`), failover (`failover`, `groups`, `replicated`).
+Each package has unit tests (`go test ./internal/resource ./internal/monitoring ./internal/resilience ./internal/audit`); the NixOS VM tests (`nix build .#checks.x86_64-linux.<name>`) cover the behaviour above on a running system: power loss (`hardening-*`), updates (`update`), pool import at boot and the installer (`installer`), failover (`failover`, `groups`, `replicated`).

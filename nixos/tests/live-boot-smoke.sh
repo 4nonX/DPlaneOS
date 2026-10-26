@@ -252,18 +252,8 @@ check "FTP answers on port 21" retry 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/21 &
 expect 200 GET /api/s3/status
 check "MinIO reported not installed (s3.enable off)" test "$(json .installed)" = false
 
-# ── Feature flags (Settings → Features) ────────────────────────────────────
-expect 200 GET /api/system/features
-check "features listed" test "$(jq '.features | length' "$RESP")" -ge 6
-expect 200 POST /api/system/features/ses_enclosure/enable '{"new_state":"beta"}'
-expect 200 GET /api/system/features
-check "feature state persisted" test "$(jq -r '.features[] | select(.id == "ses_enclosure") | .state' "$RESP")" = beta
-check "feature state stored in PostgreSQL" \
-  test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT state FROM feature_flags WHERE id = 'ses_enclosure'")" = beta
-
-# ── Migrations moved into the embedded set ─────────────────────────────────
-check "operation_journal and audit_events exist" \
-  test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('operation_journal','audit_events')")" = 2
+# ── Migrations ──────────────────────────────────────────────────────────────
+check "audit_events exists, feature_flags and operation_journal do not"   test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_name IN ('feature_flags','operation_journal','audit_events')")" = audit_events
 runuser -u postgres -- psql -d dplaneos -v ON_ERROR_STOP=1 -qc \
   "INSERT INTO audit_events (event_type, component, status) VALUES ('smoke', 'ci', 'success')"
 check "audit_events HMAC trigger fills hmac (pgcrypto)" \

@@ -31,7 +31,6 @@ import (
 	"dplaned/internal/configbackup"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
-	"dplaned/internal/features"
 	"dplaned/internal/fleet"
 	"dplaned/internal/gitops"
 	"dplaned/internal/gitsync"
@@ -469,19 +468,19 @@ func main() {
 	daemonCtx, daemonCancel := context.WithCancel(context.Background())
 	defer daemonCancel()
 
-	// Hardening phases 1-5: resource watcher, feature flags, crash-recovery
-	// journal, health checks, structured event log, rollback manager. They
-	// monitor and log; a failure here must not stop the daemon.
+	// Monitoring: resource watcher, hardware profile, circuit breakers, health
+	// checks and the structured event log. They monitor and log; a failure
+	// here must not stop the daemon.
 	phases, err := func() (p *bootstrap.AllPhases, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				p, err = nil, fmt.Errorf("panic: %v", r)
 			}
 		}()
-		return bootstrap.InitializeAllPhases(daemonCtx, db, filepath.Dir(*gitopsStatePath))
+		return bootstrap.InitializeAllPhases(daemonCtx, db)
 	}()
 	if err != nil {
-		log.Printf("WARNING: hardening phases not started: %v", err)
+		log.Printf("WARNING: monitoring not started: %v", err)
 	} else {
 		defer phases.Close()
 	}
@@ -1219,21 +1218,6 @@ func main() {
 		r.Handle("/api/health/ready", permRoute("system", "read", http.HandlerFunc(healthH.ReadinessProbe))).Methods("GET")
 	}
 
-	// Optional feature flags (Settings → Features). Stored states load first;
-	// built-ins fill in the rest as disabled.
-	var featureMgr *features.Manager
-	if phases != nil {
-		featureMgr = phases.FeatureManager // loaded and registered by the bootstrap
-	} else {
-		featureMgr = features.NewManager(db)
-		if err := featureMgr.LoadFromDB(context.Background()); err != nil {
-			log.Printf("WARNING: feature flags: %v", err)
-		}
-		features.RegisterBuiltIns(featureMgr)
-	}
-	r.Handle("/api/system/features", permRoute("system", "read", handlers.FeatureFlagsHandler(featureMgr))).Methods("GET")
-	r.Handle("/api/system/features/{id}/enable", permRoute("system", "admin", handlers.FeatureEnableHandler(featureMgr))).Methods("POST")
-	r.Handle("/api/system/features/{id}/disable", permRoute("system", "admin", handlers.FeatureDisableHandler(featureMgr))).Methods("POST")
 	r.Handle("/api/system/preflight", permRoute("system", "read", systemStatusHandler.HandlePreflight)).Methods("GET")
 
 	// OTA update endpoints (Debian/Ubuntu)

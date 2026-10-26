@@ -22,7 +22,7 @@ let
 
   # End-to-end API smoke test (pool, vdev, dataset preset, snapshots and
   # rollback, export/import, SMB shares with testparm, Time Machine Bonjour,
-  # feature flags, migrations). Shellchecked at build time.
+  # migrations). Shellchecked at build time.
   smokeTest = pkgs.writeShellApplication {
     name = "dplaneos-smoke";
     runtimeInputs = with pkgs; [ curl jq gawk avahi iproute2 util-linux ];

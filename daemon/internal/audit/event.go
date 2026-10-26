@@ -20,11 +20,8 @@ const (
 	EventOperationFailed   EventType = "operation_failed"
 	EventCircuitOpen       EventType = "circuit_open"
 	EventCircuitClosed     EventType = "circuit_closed"
-	EventFeatureEnabled    EventType = "feature_enabled"
-	EventFeatureDisabled   EventType = "feature_disabled"
 	EventResourceCritical  EventType = "resource_critical"
 	EventHardwareDetected  EventType = "hardware_detected"
-	EventRollbackApplied   EventType = "rollback_applied"
 	EventAuthFailure       EventType = "auth_failure"
 	EventConfigChanged     EventType = "config_changed"
 )
@@ -127,26 +124,6 @@ func (el *EventLogger) LogOperationFailed(ctx context.Context, opID, component, 
 	return el.LogEvent(ctx, event)
 }
 
-// LogFeatureChange logs when a feature is enabled/disabled.
-func (el *EventLogger) LogFeatureChange(ctx context.Context, featureID, state, reason string) error {
-	eventType := EventFeatureEnabled
-	if state == "disabled" {
-		eventType = EventFeatureDisabled
-	}
-
-	event := StructuredEvent{
-		EventType: eventType,
-		Component: "features",
-		Status:    "success",
-		Details: map[string]interface{}{
-			"feature":   featureID,
-			"new_state": state,
-			"reason":    reason,
-		},
-	}
-	return el.LogEvent(ctx, event)
-}
-
 // LogCircuitStateChange logs circuit breaker state transitions.
 func (el *EventLogger) LogCircuitStateChange(ctx context.Context, service, newState string) error {
 	eventType := EventCircuitOpen
@@ -187,20 +164,6 @@ func (el *EventLogger) LogHardwareDetected(ctx context.Context, profile map[stri
 		Component: "hardware",
 		Status:    "success",
 		Details:   profile,
-	}
-	return el.LogEvent(ctx, event)
-}
-
-// LogRollbackApplied logs when a rollback is executed.
-func (el *EventLogger) LogRollbackApplied(ctx context.Context, opID string, reason string) error {
-	event := StructuredEvent{
-		EventType:   EventRollbackApplied,
-		Component:   "gitops",
-		OperationID: opID,
-		Status:      "success",
-		Details: map[string]interface{}{
-			"reason": reason,
-		},
 	}
 	return el.LogEvent(ctx, event)
 }

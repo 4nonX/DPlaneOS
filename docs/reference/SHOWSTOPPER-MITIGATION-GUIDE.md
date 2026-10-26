@@ -99,7 +99,7 @@ The Go daemon (`dplaned`) ships as a compiled binary. Users who require source-l
 The full source is in the repository and in the release tarball. The system is built from the flake, so the daemon on an installed system is a Nix store path that can be rebuilt from the same release and compared:
 
 ```bash
-git clone https://github.com/4nonX/DPlaneOS && cd DPlaneOS && git checkout v16.0.1
+git clone https://github.com/4nonX/DPlaneOS && cd DPlaneOS && git checkout v16.0.2
 nix build .#dplaneos-daemon-cgo --print-out-paths       # the daemon the appliance runs
 systemctl cat dplaned | grep -o '/nix/store/[^/]*-dplaneos-daemon-cgo-[^/]*'   # on the NAS
 ```

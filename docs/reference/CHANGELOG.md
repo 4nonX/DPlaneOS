@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## v16.0.2 (2026-10-26) - "Bedrock"
+
+### Fixed
+
+- **Settings › Features showed working features as disabled.** The tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
+
+### Removed
+
+- Startup code nothing used: the feature flag store (table `feature_flags`), an operation journal no operation wrote to (table `operation_journal`) with its startup "recovery" and rollback manager, a resource-guard middleware applied nowhere, and an unused ZFS consistency check. Migration 35 drops both tables. The resource watcher, health checks (`/api/health`) and the event log are unchanged.
+
+
 ## v16.0.1 (2026-10-24) - "Bedrock"
 
 ### Security
