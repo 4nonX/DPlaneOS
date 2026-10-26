@@ -49,8 +49,23 @@
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
 
+      # ── Go toolchain of the daemon ───────────────────────────────────────
+      # nixos-26.05 has Go 1.26.8; 1.26.10 fixes standard library
+      # vulnerabilities the daemon reaches (GO-2026-6809 in crypto/x509).
+      # Keep in step with the toolchain line of daemon/go.mod; CI scans the
+      # built binary (govulncheck -mode=binary) and fails on any finding.
+      # Drop the override once nixpkgs has this version or a later one.
+      goFor = p: p.go_1_26.overrideAttrs (old: {
+        version = "1.26.10";
+        src = p.fetchurl {
+          url  = "https://go.dev/dl/go1.26.10.src.tar.gz";
+          hash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
+        };
+      });
+      buildGoModuleFor = p: p.buildGoModule.override { go = goFor p.buildPackages; };
+
       # ── Daemon Builder (breaks evaluation loops) ─────────────────────────
-      mkDaemon = { system, pkgs, pkgsStatic, dplaneosVersion, nixpkgs }: pkgsStatic.buildGoModule {
+      mkDaemon = { system, pkgs, pkgsStatic, dplaneosVersion, nixpkgs }: buildGoModuleFor pkgsStatic {
         pname        = "dplaneos-daemon";
         version      = dplaneosVersion;
         src          = nixpkgs.lib.cleanSource ./daemon;
@@ -78,7 +93,7 @@
         };
       };
 
-      mkDaemonDynamic = { system, pkgs, dplaneosVersion, nixpkgs }: pkgs.buildGoModule {
+      mkDaemonDynamic = { system, pkgs, dplaneosVersion, nixpkgs }: buildGoModuleFor pkgs {
         pname        = "dplaneos-daemon-dynamic";
         version      = dplaneosVersion;
         src          = nixpkgs.lib.cleanSource ./daemon;
@@ -107,7 +122,7 @@
       #   pkgs.gcc           - C compiler for cgo
       #
       # To build manually: nix build .#dplaneos-daemon-cgo
-      mkDaemonCGO = { system, pkgs, dplaneosVersion, nixpkgs }: pkgs.buildGoModule {
+      mkDaemonCGO = { system, pkgs, dplaneosVersion, nixpkgs }: buildGoModuleFor pkgs {
         pname        = "dplaneos-daemon-cgo";
         version      = dplaneosVersion;
         src          = nixpkgs.lib.cleanSource ./daemon;

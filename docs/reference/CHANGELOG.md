@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## v16.0.2 (2026-10-26) - "Bedrock"
 
+### Security
+
+- **The daemon was built with Go 1.26.5,** which has 17 standard library vulnerabilities the daemon reaches, among them HTTP/2 server crashes and memory exhaustion (GO-2026-6617, GO-2026-6603), HTTP/1 connection desynchronization (GO-2026-6613), unlimited Range headers (GO-2026-6609) and the trust of compromised intermediate certificates (GO-2026-6809). The flake builds the daemon with the Go of its nixpkgs; CI scanned the source with the newer Go of `daemon/go.mod` instead and never saw them, and it let one vulnerability through as long as the count matched a "known" one that was fixed long ago. The daemon is now built with Go 1.26.10, which fixes all of them. CI checks that the flake builds with the Go of `daemon/go.mod` and fails on any vulnerability the code reaches.
+- **The operating system was three months behind on security fixes:** the nixpkgs pin (all packages of the ISOs and installed systems: kernel, OpenSSL, OpenSSH, nginx, PostgreSQL, Samba) dated from 2026-07-21. It now follows nixos-26.05 of 2026-10-25, and CI fails when the pin falls more than 30 days behind its channel.
+- Dependencies with known vulnerabilities the daemon does not call, upgraded: `go-acme/lego` 4.35.2 (was 4.33.0), `go-ldap/ldap` 3.4.15 with `Azure/go-ntlmssp` 0.1.1 (a malformed NTLM challenge could crash the LDAP client).
+
 ### Fixed
 
 - **Settings › Features showed working features as disabled.** The tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
