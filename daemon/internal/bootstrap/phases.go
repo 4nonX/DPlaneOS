@@ -107,7 +107,9 @@ func wirePhaseCallbacks(ctx context.Context, phases *AllPhases) {
 	phases.ResourceWatcher.SetCriticalCallback(func(status resource.ResourceStatus) {
 		log.Printf("[BOOTSTRAP] Resource critical: disk %d%%, memory %d%%, file descriptors %d%%",
 			status.DiskUsagePercent, status.MemoryPercent, status.FileDescriptorPercent)
-		phases.EventLogger.LogResourceCritical(ctx, "disk", status.DiskUsagePercent)
+		for name, percent := range status.CriticalResources() {
+			phases.EventLogger.LogResourceCritical(ctx, name, percent)
+		}
 	})
 
 	phases.ResourceWatcher.SetDegradedCallback(func(status resource.ResourceStatus) {

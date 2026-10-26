@@ -52,3 +52,13 @@ func TestWatcherCallbackOnCritical(t *testing.T) {
 	}
 }
 
+
+func TestCriticalResources(t *testing.T) {
+	got := ResourceStatus{DiskUsagePercent: 50, MemoryPercent: 96, FileDescriptorPercent: 90}.CriticalResources()
+	if len(got) != 2 || got["memory"] != 96 || got["file_descriptors"] != 90 {
+		t.Errorf("critical resources: %v (want memory 96 and file_descriptors 90)", got)
+	}
+	if got := (ResourceStatus{DiskUsagePercent: 98}).CriticalResources(); len(got) != 1 || got["disk"] != 98 {
+		t.Errorf("critical resources: %v (want disk 98)", got)
+	}
+}

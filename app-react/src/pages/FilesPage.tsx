@@ -21,7 +21,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, ensureOk, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, ensureOk, getSessionId, getUsername, ensureCsrfToken } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -357,7 +357,7 @@ function UploadPanel({ currentPath, onDone }: { currentPath: string; onDone: () 
       const headers: Record<string,string> = {}
       const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
       const usr = getUsername(); if (usr) headers['X-User'] = usr
-      headers['X-CSRF-Token'] = getCsrfToken()
+      headers['X-CSRF-Token'] = await ensureCsrfToken()
 
       const res = await fetch('/api/files/upload', { method: 'POST', headers, body: fd })
       const data = await res.json()
@@ -591,14 +591,12 @@ function FileBrowser() {
   function downloadFile(entry: FileEntry) {
     const sid = getSessionId()
     const usr = getUsername()
-    const csrf = getCsrfToken()
     const url = `/api/files/download?path=${encodeURIComponent(entry.path)}`
     // Create a hidden <a> with auth headers via a fetch + blob approach
     fetch(url, {
       headers: {
         'X-Session-ID': sid ?? '',
         'X-User': usr ?? '',
-        'X-CSRF-Token': csrf,
       }
     })
       .then(r => r.blob())
@@ -641,7 +639,7 @@ function FileBrowser() {
           const headers: Record<string, string> = {}
           const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
           const usr = getUsername(); if (usr) headers['X-User'] = usr
-          headers['X-CSRF-Token'] = getCsrfToken()
+          headers['X-CSRF-Token'] = await ensureCsrfToken()
           const res = await fetch('/api/files/upload', { method: 'POST', headers, body: fd })
           const data = await res.json()
           if (!data.success) throw new Error(data.error ?? 'Upload failed')

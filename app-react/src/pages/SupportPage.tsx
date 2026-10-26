@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MaintenancePanels } from './MaintenancePanels'
-import { api, getSessionId, getCsrfToken } from '@/lib/api'
+import { api, getSessionId, ensureCsrfToken } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -46,7 +46,7 @@ export function SupportPage() {
         method: 'POST',
         headers: {
           'X-Session-ID': getSessionId() ?? '',
-          'X-CSRF-Token': getCsrfToken() ?? '',
+          'X-CSRF-Token': await ensureCsrfToken(),
         },
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)

@@ -27,7 +27,7 @@
 import { useState, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, getSessionId, getUsername, ensureCsrfToken } from '@/lib/api'
 import { TuningCard, SecretsStatusCard, NixOSBackupButton } from '@/components/settings/SystemCards'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -641,7 +641,7 @@ function MaintenanceTab() {
       form.append('network', restoreNetwork ? '1' : '0')
       const res = await fetch('/api/system/config/restore', {
         method: 'POST',
-        headers: { 'X-Session-ID': getSessionId() ?? '', 'X-User': getUsername() ?? '', 'X-CSRF-Token': getCsrfToken() },
+        headers: { 'X-Session-ID': getSessionId() ?? '', 'X-User': getUsername() ?? '', 'X-CSRF-Token': await ensureCsrfToken() },
         body: form,
       })
       const body = await res.json().catch(() => ({ error: res.statusText }))

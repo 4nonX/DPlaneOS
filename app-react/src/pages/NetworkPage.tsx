@@ -23,7 +23,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, getCsrfToken, ensureOk } from '@/lib/api'
+import { api, getSessionId, getUsername, ensureCsrfToken, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -647,7 +647,7 @@ function DiagnosticsTab() {
         'Content-Type': 'application/json',
         'X-Session-ID': getSessionId() ?? '',
         'X-User': getUsername() ?? '',
-        'X-CSRF-Token': getCsrfToken(),
+        'X-CSRF-Token': await ensureCsrfToken(),
       }
 
       const response = await fetch('/api/system/diagnostics', {

@@ -4,8 +4,9 @@
  * Single source of truth for all daemon communication.
  *
  * Rules:
- *  - CSRF token is fetched once from GET /api/csrf on app init (response: { success, csrf_token })
- *    and injected as X-CSRF-Token on every mutating (non-GET) request.
+ *  - The CSRF token belongs to the session: fetched from GET /api/csrf (response: { success, csrf_token })
+ *    once a session exists, dropped when the session changes, and sent as X-CSRF-Token on every
+ *    mutating (non-GET) request. Without a session nothing needs one (login and setup are exempt).
  *  - Session ID is stored in sessionStorage as 'session_id' (set on login).
  *  - Username is stored in sessionStorage as 'username' (set on login).
  *  - X-Session-ID and X-User headers are sent on every request (daemon validates session server-side).
@@ -36,15 +37,23 @@ export class ApiError extends Error {
 
 let csrfToken: string | null = null
 
-/** Fetch and cache the CSRF token. Called once on app startup via initCsrf(). */
+/**
+ * Fetch and cache the CSRF token of the current session. Without a session
+ * there is none to fetch (the daemon answers 401): login, the second login
+ * step and the setup wizard do not need one.
+ */
 export async function initCsrf(): Promise<void> {
-  const res = await fetch('/api/csrf', { credentials: 'same-origin' })
+  const sessionId = getSessionId()
+  if (!sessionId) {
+    csrfToken = null
+    return
+  }
+  if (import.meta.env.DEV && sessionId === 'mock_session_id') {
+    csrfToken = 'mock_csrf_token' // preview mode, development builds only
+    return
+  }
+  const res = await fetch('/api/csrf', { credentials: 'same-origin', headers: { 'X-Session-ID': sessionId } })
   if (!res.ok) {
-    if (import.meta.env.DEV && (getSessionId() === 'mock_session_id' || !getSessionId())) {
-      console.warn('[DevProxy] CSRF init failed, using mock token for preview mode')
-      csrfToken = 'mock_csrf_token'
-      return
-    }
     throw new ApiError(res.status, `CSRF init failed: ${res.status} ${res.statusText}`)
   }
   const data = await res.json()
@@ -55,10 +64,10 @@ export async function initCsrf(): Promise<void> {
   csrfToken = data.csrf_token as string
 }
 
-export function getCsrfToken(): string {
-  if (!csrfToken) {
-    throw new Error('CSRF token not initialised - initCsrf() must complete before any mutation')
-  }
+/** The current session's CSRF token, fetched first when there is none yet. */
+export async function ensureCsrfToken(): Promise<string> {
+  if (!csrfToken) await initCsrf()
+  if (!csrfToken) throw new Error('No session: log in first')
   return csrfToken
 }
 
@@ -81,6 +90,7 @@ export function storeSession(sessionId: string, username: string, persistent?: b
   const store = persistent ? localStorage : sessionStorage
   store.setItem('session_id', sessionId)
   store.setItem('username', username)
+  csrfToken = null // the new session's token is fetched with its first change
 }
 
 export function clearSession(): void {
@@ -88,6 +98,7 @@ export function clearSession(): void {
   sessionStorage.removeItem('username')
   localStorage.removeItem('session_id')
   localStorage.removeItem('username')
+  csrfToken = null
 }
 
 // ---------------------------------------------------------------------------
@@ -116,15 +127,12 @@ export async function apiFetch<T>(
 
   const headers: Record<string, string> = {}
 
+  const sessionId = getSessionId()
   if (isMutating) {
-    if (!csrfToken) {
-      await initCsrf()
-    }
     headers['Content-Type'] = 'application/json'
-    headers['X-CSRF-Token'] = getCsrfToken()
+    if (sessionId) headers['X-CSRF-Token'] = await ensureCsrfToken()
   }
 
-  const sessionId = getSessionId()
   const username = getUsername()
   if (sessionId) headers['X-Session-ID'] = sessionId
   if (username) headers['X-User'] = username
@@ -274,13 +282,23 @@ export async function apiFetch<T>(
     }
   }
 
-  const res = await fetch(path, {
+  const send = () => fetch(path, {
     method,
     headers,
     credentials: 'same-origin',
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
   })
+  let res = await send()
+
+  // The session's token changed (another tab fetched a new one): fetch it
+  // again and send the change once more.
+  if (res.status === 403 && isMutating && sessionId && headers['X-CSRF-Token']
+      && (await res.clone().text()).includes('Invalid CSRF token')) {
+    csrfToken = null
+    headers['X-CSRF-Token'] = await ensureCsrfToken()
+    res = await send()
+  }
 
   // Auth failure → redirect to login
   if (res.status === 401) {

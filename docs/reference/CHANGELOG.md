@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 
 - **Settings › Features showed working features as disabled.** The tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
+- **Changes failed after signing in until the page was reloaded** (since v5.3.0). The login page has no session, so its CSRF request was refused and the web interface kept a placeholder token; after the login every change (creating a pool, saving a setting) was refused with "Forbidden (Invalid CSRF token)" until a reload fetched the session's token. The token now belongs to the session: it is fetched with the first change of a new session and dropped at login and logout. A change refused because another tab fetched a new token is sent again once with the current one. Uploads, the configuration restore, the support bundle, diagnostics, custom icons and the API explorer fetch the token the same way.
+- **The event log recorded every critical resource as disk.** Memory and file descriptors at their critical level are now recorded under their own names.
 
 ### Removed
 
