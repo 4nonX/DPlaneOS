@@ -2,8 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 // Browser tests of the web interface against a mocked API (Design 0001
 // phase 4 exit criterion), on the production build. Every /api request is
-// answered by e2e/mockApi.ts;
-// no daemon runs.
+// answered by e2e/mockApi.ts; no daemon runs.
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
