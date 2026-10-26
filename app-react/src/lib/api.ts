@@ -40,7 +40,7 @@ let csrfToken: string | null = null
 export async function initCsrf(): Promise<void> {
   const res = await fetch('/api/csrf', { credentials: 'same-origin' })
   if (!res.ok) {
-    if (getSessionId() === 'mock_session_id' || !getSessionId()) {
+    if (import.meta.env.DEV && (getSessionId() === 'mock_session_id' || !getSessionId())) {
       console.warn('[DevProxy] CSRF init failed, using mock token for preview mode')
       csrfToken = 'mock_csrf_token'
       return

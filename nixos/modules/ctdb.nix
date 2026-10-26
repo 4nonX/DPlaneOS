@@ -207,15 +207,6 @@ in {
       ${lib.concatStringsSep "\n" cfg.publicAddresses}
     '';
 
-    # Recovery daemon: runs after node failure to heal the cluster
-    # This is a shell script that CTDB calls; we use a simple no-op for now.
-    environment.etc."ctdb/events.d/00.recoverd".text = ''
-      #!/bin/sh
-      # Event handler called on cluster recovery
-      # For now, just acknowledge recovery completion
-      exit 0
-    '';
-
     # ── Logging and monitoring ──────────────────────────────────────────────
     # Log directory is created above in systemd.tmpfiles.rules
 
