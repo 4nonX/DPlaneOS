@@ -459,6 +459,14 @@ func (s *Syncer) evaluate(p Peer) error {
 				s.setPeerStatus(r.UID, peerWaiting, fmt.Sprintf("pool %s is not imported on this node", r.ScopeID))
 				continue
 			}
+			// Kept before anything changes: a failure here leaves the live
+			// state and this node's head as they were, and the next round
+			// tries again.
+			if local != nil {
+				if err := s.keepIfOverruled(p, *local, r, anc); err != nil {
+					return err
+				}
+			}
 			detail := ""
 			if err := s.applyRemote(p, r.resource(), live); err != nil {
 				switch {
@@ -473,11 +481,6 @@ func (s *Syncer) evaluate(p Peer) error {
 			}
 			if err := adopt(s.db, r, local); err != nil {
 				return err
-			}
-			if local != nil {
-				if err := s.keepIfOverruled(p, *local, r, anc); err != nil {
-					return err
-				}
 			}
 			applied = true
 			s.setPeerStatus(r.UID, peerAdopted, detail)

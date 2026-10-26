@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api, ensureOk, getSessionId } from '@/lib/api'
+import { api, ensureOk, sessionFetch } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -227,7 +227,7 @@ export function ConfigHistoryPage() {
 
   async function exportYAML() {
     // Download through fetch so the session header is sent.
-    const res = await fetch('/api/config/export', { headers: { 'X-Session-ID': getSessionId() ?? '' } })
+    const res = await sessionFetch('/api/config/export')
     if (!res.ok) { toast.error(`Export failed (${res.status})`); return }
     const blob = await res.blob()
     const a = document.createElement('a')

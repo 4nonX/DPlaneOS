@@ -6,7 +6,7 @@
  */
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, ensureCsrfToken } from '@/lib/api'
+import { api, sessionFetch } from '@/lib/api'
 import { Modal } from '@/components/ui/Modal'
 import { Icon } from '@/components/ui/Icon'
 import { toast } from '@/hooks/useToast'
@@ -27,10 +27,7 @@ export function CustomIconsButton() {
     try {
       const fd = new FormData()
       fd.append('file', file, file.name)
-      const headers: Record<string, string> = { 'X-CSRF-Token': await ensureCsrfToken() }
-      const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
-      const usr = getUsername(); if (usr) headers['X-User'] = usr
-      const res = await fetch('/api/assets/custom-icons', { method: 'POST', headers, body: fd })
+      const res = await sessionFetch('/api/assets/custom-icons', { method: 'POST', body: fd })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.success) throw new Error(data.error || `Upload failed (HTTP ${res.status})`)
       toast.success(`Icon ${data.name} uploaded: use dplaneos.icon: ${data.name}`)
