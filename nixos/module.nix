@@ -356,7 +356,7 @@ in {
                 continue
               fi
               err=$(${zpool} import -N "$guid" 2>&1) && continue
-              # Up to 16.0.0 every machine ran with host ID 0, which ZFS does
+              # Up to 15.1.0 every machine ran with host ID 0, which ZFS does
               # not record: a pool that was imported when such a machine went
               # down looks like another system's to the same machine with its
               # own host ID. Only that case is imported with -f: last used by
