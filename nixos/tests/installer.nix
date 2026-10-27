@@ -15,7 +15,7 @@
 #      (read from the installer afterwards) shows no failed unit, and the
 #      machine has its own ZFS host ID
 #   4. the boot import: it leaves a pool listed as a shared storage group's
-#      alone; a pool last used without a host ID (16.0.0 and older) is
+#      alone; a pool last used without a host ID (15.1.0 and older) is
 #      imported only when this machine's hostname used it
 #   5. a disk smaller than the layout needs and a weak password are refused
 #
@@ -42,7 +42,7 @@ pkgs.testers.nixosTest {
     virtualisation.useEFIBoot = true;
     boot.loader.systemd-boot.enable = true;
     boot.loader.efi.canTouchEfiVariables = true;
-    # ZFS with host ID 0, as DPlaneOS up to 16.0.0: plays such a machine
+    # ZFS with host ID 0, as DPlaneOS up to 15.1.0: plays such a machine
     # that last used the pool (the host ID transition below).
     boot.supportedFilesystems = [ "vfat" "ext4" "zfs" ];
     networking.hostId = "00000000";
@@ -212,7 +212,7 @@ pkgs.testers.nixosTest {
 
     def last_used_without_host_id(hostname):
         # The installer, with host ID 0 and the given hostname, imports tank
-        # and goes down without exporting it (a machine on 16.0.0 that lost
+        # and goes down without exporting it (a machine on 15.1.0 that lost
         # power or was updated with the pool imported).
         installer.start()
         installer.wait_for_unit("multi-user.target")

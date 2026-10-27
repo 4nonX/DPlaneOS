@@ -36,7 +36,7 @@ NixOS is a Linux distribution where the **whole system is built from a descripti
 From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), download `dplaneos-v<version>-installer-amd64.iso` (Intel/AMD) or `dplaneos-v<version>-installer-arm64.iso` (ARM), and its `.sha256` file. Check it:
 
 ```bash
-ISO=dplaneos-v16.0.2-installer-amd64.iso   # the file you downloaded (…-arm64.iso on ARM)
+ISO=dplaneos-v16.0.0-installer-amd64.iso   # the file you downloaded (…-arm64.iso on ARM)
 sha256sum -c "$ISO.sha256"
 ```
 
