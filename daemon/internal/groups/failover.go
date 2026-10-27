@@ -198,7 +198,7 @@ func (m *Manager) takeover(name, why string) error {
 	// owner is the old one: the status shows the change, not a problem.
 	m.setMoving(name, true)
 	defer m.setMoving(name, false)
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return err
 	}

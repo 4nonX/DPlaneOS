@@ -229,16 +229,30 @@ func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func
 	return &Manager{db: db, ops: ops, repl: DefaultReplOps, split: DefaultSplitOps, res: DefaultResOps, addr: DefaultAddrOps, tr: tr, self: self, view: view}
 }
 
-func (m *Manager) currentView() (View, error) {
+// importedPools lists the pools imported here and keeps the listing for
+// statusView.
+func (m *Manager) importedPools() (map[string]string, error) {
 	imported, err := m.ops.ImportedPools()
+	if err != nil {
+		return nil, err
+	}
+	last := make(map[string]string, len(imported))
+	for k, v := range imported {
+		last[k] = v
+	}
+	m.fmu.Lock()
+	m.lastPools = last
+	m.fmu.Unlock()
+	return imported, nil
+}
+
+func (m *Manager) currentView() (View, error) {
+	imported, err := m.importedPools()
 	if err != nil {
 		v := m.view()
 		v.Self = m.self()
 		return v, err
 	}
-	m.fmu.Lock()
-	m.lastPools = imported
-	m.fmu.Unlock()
 	return m.viewWith(imported), nil
 }
 
@@ -391,7 +405,7 @@ func (m *Manager) CreateWith(name, topology string, pools []string, candidates [
 	if _, err := Get(m.db, name); err == nil {
 		return nil, fmt.Errorf("group %s exists", name)
 	}
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +593,7 @@ func (m *Manager) adopt(g Group) error {
 	if err := g.Validate(); err != nil {
 		return err
 	}
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return err
 	}
@@ -744,7 +758,7 @@ func (m *Manager) SyncOnce() error {
 // ImportedPoolNames lists the pools imported on this node (reported to the
 // other members so an owner knows nobody else uses its pools).
 func (m *Manager) ImportedPoolNames() ([]string, error) {
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return nil, err
 	}

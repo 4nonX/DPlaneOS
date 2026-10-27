@@ -147,3 +147,45 @@ func TestRefusedMoveNamesAPoolItCannotGiveBack(t *testing.T) {
 		t.Errorf("the pool left here must show as one to release: %+v", st.Status)
 	}
 }
+
+// A move to this node as its first operation: no status was listed before,
+// and the listing times out during the import; the status still shows the
+// change.
+func TestMoveHereShowsTheChangeWhileImporting(t *testing.T) {
+	db := groupsTestDB(t)
+	tr := &fakeTransport{members: []string{"ka", "kb"}}
+	m, imported := maintenanceManager(t, db, tr, []string{"ka", "kb"})
+	delete(imported, "tank")
+	g := Group{Name: "data", Topology: Shared, Pools: []PoolRef{{Name: "tank", GUID: "11"}},
+		Candidates: []string{"ka", "kb"}, Owner: "kb", Epoch: 1, Version: 1}
+	if err := put(db, g); err != nil {
+		t.Fatal(err)
+	}
+	importing := false
+	list := m.ops.ImportedPools
+	m.ops.ImportedPools = func() (map[string]string, error) {
+		if importing {
+			return nil, errors.New("zpool list: timed out")
+		}
+		return list()
+	}
+	var during GroupStatus
+	m.ops.Import = func(string) error {
+		importing = true
+		imported["tank"] = "11"
+		during = status(t, m, "data")
+		importing = false
+		return nil
+	}
+	moved := g
+	moved.Owner, moved.Epoch = "ka", 2
+	if err := m.Receive(Update{Group: moved}); err != nil {
+		t.Fatal(err)
+	}
+	if !during.Changing || during.CanWrite || len(during.Problems) != 0 {
+		t.Errorf("during the import: %+v", during.Status)
+	}
+	if after := status(t, m, "data"); after.Owner != "ka" || after.Changing || !after.CanWrite {
+		t.Errorf("after the move: owner %s %+v", after.Owner, after.Status)
+	}
+}

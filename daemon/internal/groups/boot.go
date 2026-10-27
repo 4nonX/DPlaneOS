@@ -173,7 +173,7 @@ func (m *Manager) importOwned(g Group) error {
 	if m.isMoving(g.Name) {
 		return fmt.Errorf("group %s is being moved", g.Name)
 	}
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return err
 	}
