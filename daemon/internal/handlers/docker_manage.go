@@ -142,7 +142,7 @@ func (h *DockerHandler) ReconfigureContainer(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Icon          string `json:"icon"`
 		RestartPolicy string `json:"restart_policy"`
-		Ports []struct {
+		Ports         []struct {
 			HostPort      string `json:"host_port"`
 			ContainerPort string `json:"container_port"`
 			Protocol      string `json:"protocol"`

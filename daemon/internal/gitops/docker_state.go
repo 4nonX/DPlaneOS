@@ -20,7 +20,7 @@ type LiveStack struct {
 	Name     string
 	Path     string
 	YAML     string
-	Status   string // "running", "partial", "stopped"
+	Status   string   // "running", "partial", "stopped"
 	Services []string // names of services in this stack
 }
 
@@ -77,7 +77,7 @@ func readLiveStacks() ([]LiveStack, error) {
 func parseStackStatus(output []byte) ([]string, string) {
 	var services []string
 	running := 0
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		if line == "" {

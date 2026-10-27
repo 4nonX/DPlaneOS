@@ -125,4 +125,3 @@ func ValidateExport(e *Export) error {
 func ZvolDevicePath(dataset string) string {
 	return "/dev/zvol/" + strings.TrimSpace(dataset)
 }
-

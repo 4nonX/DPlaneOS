@@ -45,23 +45,23 @@ type ComposeExamples struct {
 
 // PCIGPUDevice is a display-class PCI function from lspci.
 type PCIGPUDevice struct {
-	BusID       string `json:"bus_id"`
-	Class       string `json:"class"`        // e.g. VGA, 3D, Display
-	ClassCode   string `json:"class_code"`   // e.g. 0300
-	VendorName  string `json:"vendor_name"`
-	DeviceName  string `json:"device_name"`
-	VendorID    string `json:"vendor_id"`    // hex, e.g. 10de
-	DeviceID    string `json:"device_id"`    // hex
-	RawLine     string `json:"raw_line"`
+	BusID      string `json:"bus_id"`
+	Class      string `json:"class"`      // e.g. VGA, 3D, Display
+	ClassCode  string `json:"class_code"` // e.g. 0300
+	VendorName string `json:"vendor_name"`
+	DeviceName string `json:"device_name"`
+	VendorID   string `json:"vendor_id"` // hex, e.g. 10de
+	DeviceID   string `json:"device_id"` // hex
+	RawLine    string `json:"raw_line"`
 }
 
 // DRINode is one node under /dev/dri.
 type DRINode struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Mode        string `json:"mode"`
-	MajorMinor  string `json:"major_minor,omitempty"`
-	IsRender    bool   `json:"is_render"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Mode       string `json:"mode"`
+	MajorMinor string `json:"major_minor,omitempty"`
+	IsRender   bool   `json:"is_render"`
 }
 
 // NVIDIAGPU is one GPU reported by nvidia-smi.

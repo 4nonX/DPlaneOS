@@ -13,30 +13,30 @@ import (
 // SystemProfile contains detected hardware information
 type SystemProfile struct {
 	// CPU
-	CPUVendor      string
-	CPUModel       string
-	CPUCores       int
-	CPUThreads     int
-	
+	CPUVendor  string
+	CPUModel   string
+	CPUCores   int
+	CPUThreads int
+
 	// Memory
-	TotalRAM       uint64
-	TotalRAMGB     int
-	HasECC         bool
-	
+	TotalRAM   uint64
+	TotalRAMGB int
+	HasECC     bool
+
 	// Storage
-	HasZFS         bool
-	HasBtrfs       bool
+	HasZFS          bool
+	HasBtrfs        bool
 	PrimaryDiskType string
-	
+
 	// Platform
-	Architecture   string
-	IsVirtualized  bool
-	VirtType       string
-	
+	Architecture  string
+	IsVirtualized bool
+	VirtType      string
+
 	// Kernel
-	KernelVersion  string
-	MaxInotify     int
-	
+	KernelVersion string
+	MaxInotify    int
+
 	// Recommendations
 	RecommendedARC     uint64
 	RecommendedInotify int
@@ -48,33 +48,33 @@ func DetectHardware() (*SystemProfile, error) {
 	profile := &SystemProfile{
 		Architecture: runtime.GOARCH,
 	}
-	
+
 	detectCPU(profile)
 	detectMemory(profile)
 	detectStorage(profile)
 	detectVirtualization(profile)
 	detectKernel(profile)
 	calculateRecommendations(profile)
-	
+
 	return profile, nil
 }
 
 func detectCPU(p *SystemProfile) {
 	p.CPUThreads = runtime.NumCPU()
-	
+
 	file, err := os.Open("/proc/cpuinfo")
 	if err != nil {
 		p.CPUCores = p.CPUThreads
 		return
 	}
 	defer file.Close()
-	
+
 	scanner := bufio.NewScanner(file)
 	coresMap := make(map[string]bool)
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		if strings.HasPrefix(line, "vendor_id") {
 			parts := strings.Split(line, ":")
 			if len(parts) > 1 {
@@ -88,14 +88,14 @@ func detectCPU(p *SystemProfile) {
 				}
 			}
 		}
-		
+
 		if strings.HasPrefix(line, "model name") {
 			parts := strings.Split(line, ":")
 			if len(parts) > 1 {
 				p.CPUModel = strings.TrimSpace(parts[1])
 			}
 		}
-		
+
 		if strings.HasPrefix(line, "core id") {
 			parts := strings.Split(line, ":")
 			if len(parts) > 1 {
@@ -104,7 +104,7 @@ func detectCPU(p *SystemProfile) {
 			}
 		}
 	}
-	
+
 	p.CPUCores = len(coresMap)
 	if p.CPUCores == 0 {
 		p.CPUCores = p.CPUThreads
@@ -117,11 +117,11 @@ func detectMemory(p *SystemProfile) {
 		return
 	}
 	defer file.Close()
-	
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		if strings.HasPrefix(line, "MemTotal:") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
@@ -137,7 +137,7 @@ func detectMemory(p *SystemProfile) {
 			break
 		}
 	}
-	
+
 	p.HasECC = detectECC()
 }
 
@@ -147,33 +147,33 @@ func detectECC() bool {
 	if err != nil {
 		return false
 	}
-	
+
 	outStr := string(output)
-	return strings.Contains(outStr, "Error Correction Type:") && 
-	       !strings.Contains(outStr, "Error Correction Type: None")
+	return strings.Contains(outStr, "Error Correction Type:") &&
+		!strings.Contains(outStr, "Error Correction Type: None")
 }
 
 func detectStorage(p *SystemProfile) {
 	_, err := exec.LookPath("zpool")
 	p.HasZFS = (err == nil)
-	
+
 	_, err = exec.LookPath("btrfs")
 	p.HasBtrfs = (err == nil)
-	
+
 	cmd := exec.Command("lsblk", "-d", "-o", "NAME,ROTA")
 	output, err := cmd.Output()
 	if err != nil {
 		p.PrimaryDiskType = "unknown"
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			name := fields[0]
 			rota := fields[1]
-			
+
 			if strings.HasPrefix(name, "nvme") {
 				p.PrimaryDiskType = "NVMe"
 				return
@@ -186,7 +186,7 @@ func detectStorage(p *SystemProfile) {
 			}
 		}
 	}
-	
+
 	p.PrimaryDiskType = "unknown"
 }
 
@@ -198,7 +198,7 @@ func detectVirtualization(p *SystemProfile) {
 		p.VirtType = "none"
 		return
 	}
-	
+
 	virt := strings.TrimSpace(string(output))
 	if virt == "none" {
 		p.IsVirtualized = false
@@ -217,19 +217,19 @@ func detectKernel(p *SystemProfile) {
 	} else {
 		p.KernelVersion = strings.TrimSpace(string(output))
 	}
-	
+
 	data, err := os.ReadFile("/proc/sys/fs/inotify/max_user_watches")
 	if err != nil {
 		p.MaxInotify = 8192
 		return
 	}
-	
+
 	val, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
 		p.MaxInotify = 8192
 		return
 	}
-	
+
 	p.MaxInotify = val
 }
 
@@ -254,7 +254,7 @@ func calculateRecommendations(p *SystemProfile) {
 	} else {
 		p.RecommendedARC = 512 * 1024 * 1024
 	}
-	
+
 	// Inotify
 	if p.TotalRAMGB >= 32 {
 		p.RecommendedInotify = 1048576
@@ -267,7 +267,7 @@ func calculateRecommendations(p *SystemProfile) {
 	} else {
 		p.RecommendedInotify = 65536
 	}
-	
+
 	// Workers
 	if p.CPUCores >= 16 {
 		p.RecommendedWorkers = 8
@@ -278,7 +278,7 @@ func calculateRecommendations(p *SystemProfile) {
 	} else {
 		p.RecommendedWorkers = 1
 	}
-	
+
 	// Adjust for virtualization
 	if p.IsVirtualized {
 		p.RecommendedARC = p.RecommendedARC * 3 / 4
@@ -291,12 +291,12 @@ func (p *SystemProfile) String() string {
 	if p.HasECC {
 		ecc = "Yes"
 	}
-	
+
 	virt := "Bare Metal"
 	if p.IsVirtualized {
 		virt = fmt.Sprintf("Virtualized (%s)", p.VirtType)
 	}
-	
+
 	return fmt.Sprintf(`System Profile:
   CPU: %s %s (%d cores, %d threads)
   RAM: %d GB (ECC: %s)

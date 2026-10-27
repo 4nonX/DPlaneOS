@@ -21,12 +21,12 @@ func NewZFSSnapshotHandler() *ZFSSnapshotHandler {
 
 // Snapshot represents a ZFS snapshot
 type Snapshot struct {
-	Name       string `json:"name"`       // tank/data@snap-2025-02-15
-	Dataset    string `json:"dataset"`    // tank/data
-	SnapName   string `json:"snap_name"`  // snap-2025-02-15
-	Used       string `json:"used"`       // 1.5G
-	Refer      string `json:"refer"`      // 10.2G
-	Creation   string `json:"creation"`   // 2025-02-15 03:00
+	Name     string `json:"name"`      // tank/data@snap-2025-02-15
+	Dataset  string `json:"dataset"`   // tank/data
+	SnapName string `json:"snap_name"` // snap-2025-02-15
+	Used     string `json:"used"`      // 1.5G
+	Refer    string `json:"refer"`     // 10.2G
+	Creation string `json:"creation"`  // 2025-02-15 03:00
 }
 
 // Strict validation: dataset names can only contain alphanumeric, slash, hyphen, underscore, period
@@ -171,8 +171,8 @@ func (h *ZFSSnapshotHandler) DestroySnapshot(w http.ResponseWriter, r *http.Requ
 	}
 
 	respondOK(w, map[string]any{
-		"success":  true,
-		"message":  fmt.Sprintf("Snapshot %s destroyed", req.Snapshot),
+		"success": true,
+		"message": fmt.Sprintf("Snapshot %s destroyed", req.Snapshot),
 	})
 }
 

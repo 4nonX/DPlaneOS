@@ -14,8 +14,8 @@ import (
 // configured timeout. Writing 'V' before closing disables the watchdog
 // gracefully (magic close).
 type watchdogState struct {
-	mu     sync.Mutex
-	f      *os.File
+	mu      sync.Mutex
+	f       *os.File
 	petting atomic.Bool // true while quorum is healthy and we should keep petting
 }
 

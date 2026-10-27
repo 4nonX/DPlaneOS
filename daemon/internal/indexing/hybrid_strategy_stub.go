@@ -32,11 +32,11 @@ type WatchConfig struct {
 
 // HybridIndexer manages multiple indexing strategies
 type HybridIndexer struct {
-	configs          []WatchConfig
-	inotifyLimit     int
-	inotifyUsed      int
-	ctx              context.Context
-	cancel           context.CancelFunc
+	configs      []WatchConfig
+	inotifyLimit int
+	inotifyUsed  int
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewHybridIndexer creates a new hybrid indexing system

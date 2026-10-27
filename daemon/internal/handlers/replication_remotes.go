@@ -25,17 +25,17 @@ import (
 // Remote is a replication target peer. One Remote can be referenced by many
 // ReplicationSchedules, decoupling connection details from task configuration.
 type Remote struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Host         string    `json:"host"`
-	User         string    `json:"user"`
-	Port         int       `json:"port"`
-	Fingerprint  string    `json:"fingerprint"`         // SHA256:<base64> - SSH host key, pinned after first connect
-	HostKey      string    `json:"host_key,omitempty"`  // authorized_keys format, used for known_hosts pinning by ssh binary
-	KeyInstalled bool      `json:"key_installed"`       // true once authorize has succeeded
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Host         string     `json:"host"`
+	User         string     `json:"user"`
+	Port         int        `json:"port"`
+	Fingerprint  string     `json:"fingerprint"`        // SHA256:<base64> - SSH host key, pinned after first connect
+	HostKey      string     `json:"host_key,omitempty"` // authorized_keys format, used for known_hosts pinning by ssh binary
+	KeyInstalled bool       `json:"key_installed"`      // true once authorize has succeeded
 	LastTested   *time.Time `json:"last_tested,omitempty"`
-	TestOK       bool      `json:"test_ok"`
-	CreatedAt    time.Time `json:"created_at"`
+	TestOK       bool       `json:"test_ok"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // replStateMu guards both the remotes file and the schedules file as a single
@@ -65,7 +65,7 @@ func loadRemotes() ([]Remote, error) {
 }
 
 var errRemoteNotFound = errors.New("remote not found")
-var errRemoteInUse    = errors.New("peer is referenced by a schedule")
+var errRemoteInUse = errors.New("peer is referenced by a schedule")
 
 // atomicModifyRemotes holds replStateMu exclusively across the full
 // load-modify-save cycle. Because replStateMu also guards the schedules file,

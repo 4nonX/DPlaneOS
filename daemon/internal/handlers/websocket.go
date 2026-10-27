@@ -23,7 +23,10 @@ type WebSocketHandler struct {
 	}
 }
 
-func NewWebSocketHandler(hub interface{ Register(*websocket.Conn); Unregister(*websocket.Conn) }) *WebSocketHandler {
+func NewWebSocketHandler(hub interface {
+	Register(*websocket.Conn)
+	Unregister(*websocket.Conn)
+}) *WebSocketHandler {
 	return &WebSocketHandler{hub: hub}
 }
 
@@ -41,7 +44,7 @@ func (h *WebSocketHandler) HandleMonitor(w http.ResponseWriter, r *http.Request)
 	// Handle disconnection
 	go func() {
 		defer h.hub.Unregister(conn)
-		
+
 		// Read messages (ping/pong)
 		for {
 			_, _, err := conn.ReadMessage()

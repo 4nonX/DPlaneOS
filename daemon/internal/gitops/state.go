@@ -86,10 +86,10 @@ type DesiredFabrics struct {
 type DesiredNVMeExport struct {
 	SubsystemNQN string   `yaml:"subsystem_nqn"`
 	Zvol         string   `yaml:"zvol"`
-	Transport    string   `yaml:"transport,omitempty"`     // tcp (default)
-	ListenAddr   string   `yaml:"listen_addr,omitempty"`   // default 0.0.0.0
-	ListenPort   int      `yaml:"listen_port,omitempty"`   // default 4420
-	NamespaceID  int      `yaml:"namespace_id,omitempty"`  // default 1
+	Transport    string   `yaml:"transport,omitempty"`    // tcp (default)
+	ListenAddr   string   `yaml:"listen_addr,omitempty"`  // default 0.0.0.0
+	ListenPort   int      `yaml:"listen_port,omitempty"`  // default 4420
+	NamespaceID  int      `yaml:"namespace_id,omitempty"` // default 1
 	AllowAnyHost bool     `yaml:"allow_any_host,omitempty"`
 	HostNQNs     []string `yaml:"host_nqns,omitempty"`
 }
@@ -105,7 +105,7 @@ type PoolTopology struct {
 
 // VdevGroup is one vdev subtree: mirror, raidz*, stripe, or draid (with DraidSpec).
 type VdevGroup struct {
-	Type      string   `yaml:"type"`                 // mirror | stripe | raidz | raidz1 | raidz2 | raidz3 | draid
+	Type      string   `yaml:"type"` // mirror | stripe | raidz | raidz1 | raidz2 | raidz3 | draid
 	Disks     []string `yaml:"disks"`
 	DraidSpec string   `yaml:"draid_spec,omitempty"` // e.g. draid2:8d:1s (OpenZFS)
 }
@@ -113,15 +113,15 @@ type VdevGroup struct {
 // DesiredPool describes a ZFS pool.
 // Disks MUST use /dev/disk/by-id/ paths - enforced at parse time.
 type DesiredPool struct {
-	Name         string            `yaml:"name"`
-	Topology     PoolTopology      `yaml:"topology"`
-	Ashift       int               `yaml:"ashift"` // 0 = omit ashift flag on create
-	GUID         string            `yaml:"guid,omitempty"`
-	Options      map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
+	Name     string            `yaml:"name"`
+	Topology PoolTopology      `yaml:"topology"`
+	Ashift   int               `yaml:"ashift"` // 0 = omit ashift flag on create
+	GUID     string            `yaml:"guid,omitempty"`
+	Options  map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
 	// ForceReshape enables declarative `zpool add` for purely additive topology
 	// changes (new vdev groups, cache, log, spare). When false, additive drift
 	// is surfaced as MANUAL. Removals are always MANUAL regardless of this flag.
-	ForceReshape bool             `yaml:"force_reshape,omitempty"`
+	ForceReshape bool `yaml:"force_reshape,omitempty"`
 }
 
 // SimpleMirrorTopology builds a minimal topology for tests and simple callers.
@@ -133,17 +133,17 @@ func SimpleMirrorTopology(disks ...string) PoolTopology {
 
 // DesiredDataset describes a ZFS dataset.
 type DesiredDataset struct {
-	Name            string         `yaml:"name"`
-	Quota           string         `yaml:"quota"` // e.g. "2T", "500G", "none"
-	Compression     string         `yaml:"compression"`
-	Atime           string         `yaml:"atime"` // on, off
-	Sync            string         `yaml:"sync,omitempty"`
-	Recordsize      string         `yaml:"recordsize,omitempty"`
-	Xattr           string         `yaml:"xattr,omitempty"`
-	Secondarycache  string         `yaml:"secondarycache,omitempty"`
-	Mountpoint      string         `yaml:"mountpoint"`
-	Encrypted       bool           `yaml:"encrypted"`
-	Restore         *RestoreConfig `yaml:"restore,omitempty"`
+	Name           string         `yaml:"name"`
+	Quota          string         `yaml:"quota"` // e.g. "2T", "500G", "none"
+	Compression    string         `yaml:"compression"`
+	Atime          string         `yaml:"atime"` // on, off
+	Sync           string         `yaml:"sync,omitempty"`
+	Recordsize     string         `yaml:"recordsize,omitempty"`
+	Xattr          string         `yaml:"xattr,omitempty"`
+	Secondarycache string         `yaml:"secondarycache,omitempty"`
+	Mountpoint     string         `yaml:"mountpoint"`
+	Encrypted      bool           `yaml:"encrypted"`
+	Restore        *RestoreConfig `yaml:"restore,omitempty"`
 }
 
 type RestoreConfig struct {
@@ -184,7 +184,7 @@ type DesiredStack struct {
 	Name string `yaml:"name"`
 	YAML string `yaml:"yaml"`
 }
- 
+
 // DesiredSystem describes the system-level configuration (NixOS state).
 type DesiredSystem struct {
 	Hostname   string             `yaml:"hostname"`
@@ -206,33 +206,33 @@ type DesiredSSH struct {
 	// PermitRootLogin: "" means unset. Valid: "yes", "no", "prohibit-password", "forced-commands-only".
 	PermitRootLogin string `yaml:"permit_root_login"`
 }
- 
+
 type DesiredFirewall struct {
 	TCP []int `yaml:"tcp"`
 	UDP []int `yaml:"udp"`
 }
- 
+
 type DesiredNetworking struct {
 	Statics map[string]DesiredNetworkStatic `yaml:"statics"`
 	Bonds   map[string]DesiredNetworkBond   `yaml:"bonds"`
 	VLANs   map[string]DesiredNetworkVLAN   `yaml:"vlans"`
 }
- 
+
 type DesiredNetworkStatic struct {
 	CIDR    string `yaml:"cidr"`
 	Gateway string `yaml:"gateway"`
 }
- 
+
 type DesiredNetworkBond struct {
 	Slaves []string `yaml:"slaves"`
 	Mode   string   `yaml:"mode"`
 }
- 
+
 type DesiredNetworkVLAN struct {
 	Parent string `yaml:"parent"`
 	VID    int    `yaml:"vid"`
 }
- 
+
 type DesiredSambaGlobal struct {
 	Workgroup    string `yaml:"workgroup"`
 	ServerString string `yaml:"server_string"`
@@ -293,12 +293,12 @@ type DesiredLDAP struct {
 }
 
 type DesiredACME struct {
-	Email      string   `yaml:"email"`
-	Server     string   `yaml:"server"` // e.g. https://acme-v02.api.letsencrypt.org/directory
-	Domains    []string `yaml:"domains"`
-	Resolver   string   `yaml:"resolver"` // http, tls, or dns provider name
-	DNSConfig  map[string]string `yaml:"dns_config"` // ENV vars for DNS providers
-	Enabled    bool     `yaml:"enabled"`
+	Email     string            `yaml:"email"`
+	Server    string            `yaml:"server"` // e.g. https://acme-v02.api.letsencrypt.org/directory
+	Domains   []string          `yaml:"domains"`
+	Resolver  string            `yaml:"resolver"`   // http, tls, or dns provider name
+	DNSConfig map[string]string `yaml:"dns_config"` // ENV vars for DNS providers
+	Enabled   bool              `yaml:"enabled"`
 }
 
 type DesiredCertificate struct {
@@ -487,7 +487,7 @@ func ValidState(s *DesiredState) []string {
 			errs = append(errs, pfx+": path must be a non-empty absolute path")
 		}
 	}
- 
+
 	// ── NFS ──────────────────────────────────────────────────────────────────
 	for i, n := range s.NFS {
 		pfx := fmt.Sprintf("nfs[%d] %q", i, n.Path)
@@ -1417,7 +1417,7 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 			s.Shares = append(s.Shares, sh)
 		}
 	}
- 
+
 	if nfsRaw, ok := raw["nfs"]; ok {
 		nfs, err := toSliceOfMaps(nfsRaw, "nfs")
 		if err != nil {
@@ -1447,7 +1447,7 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 			s.Stacks = append(s.Stacks, st)
 		}
 	}
- 
+
 	if sysRaw, ok := raw["system"]; ok {
 		if sysMap, ok := sysRaw.(map[string]yamlNode); ok {
 			s.System = mapToSystem(sysMap)
@@ -1805,14 +1805,14 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 		DNSServers: toStringSliceQuiet(m["dns_servers"]),
 		NTPServers: toStringSliceQuiet(m["ntp_servers"]),
 	}
- 
+
 	if fwRaw, ok := m["firewall"]; ok {
 		if fwMap, ok := fwRaw.(map[string]yamlNode); ok {
 			sys.Firewall.TCP = toIntSlice(fwMap["tcp"])
 			sys.Firewall.UDP = toIntSlice(fwMap["udp"])
 		}
 	}
- 
+
 	if nwRaw, ok := m["networking"]; ok {
 		if nwMap, ok := nwRaw.(map[string]yamlNode); ok {
 			if stRaw, ok := nwMap["statics"]; ok {
@@ -1856,7 +1856,7 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 			}
 		}
 	}
- 
+
 	if smbRaw, ok := m["samba"]; ok {
 		if smbMap, ok := smbRaw.(map[string]yamlNode); ok {
 			sys.Samba.Workgroup = strField(smbMap, "workgroup")
@@ -1886,7 +1886,7 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 
 	return sys
 }
- 
+
 func toStringSliceQuiet(v yamlNode) []string {
 	if v == nil {
 		return nil
@@ -1901,7 +1901,7 @@ func toStringSliceQuiet(v yamlNode) []string {
 	}
 	return res
 }
- 
+
 func toIntSlice(v yamlNode) []int {
 	if v == nil {
 		return nil
@@ -1918,7 +1918,7 @@ func toIntSlice(v yamlNode) []int {
 	}
 	return res
 }
- 
+
 func intField(m map[string]yamlNode, key string) int {
 	v, ok := m[key]
 	if !ok {
@@ -1928,4 +1928,3 @@ func intField(m map[string]yamlNode, key string) int {
 	fmt.Sscanf(fmt.Sprintf("%v", v), "%d", &n)
 	return n
 }
-

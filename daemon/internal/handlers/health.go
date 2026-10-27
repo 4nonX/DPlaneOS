@@ -3,9 +3,9 @@
 package handlers
 
 import (
+	"dplaned/internal/monitoring"
 	"encoding/json"
 	"net/http"
-	"dplaned/internal/monitoring"
 )
 
 // HealthHandler wraps a health checker for HTTP endpoints.

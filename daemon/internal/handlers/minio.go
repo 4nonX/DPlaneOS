@@ -257,7 +257,7 @@ func GetMinioConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Redact password in response
 	out := map[string]any{
-		"root_user":    cfg.RootUser,
+		"root_user": cfg.RootUser,
 		"root_password": func() string {
 			if cfg.RootPassword != "" {
 				return "••••••••"

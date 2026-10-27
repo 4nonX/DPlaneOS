@@ -14,9 +14,9 @@ import (
 type State string
 
 const (
-	StateClosed    State = "closed"    // Normal operation
-	StateOpen      State = "open"      // Failing; rejecting requests
-	StateHalfOpen  State = "half-open" // Testing recovery
+	StateClosed   State = "closed"    // Normal operation
+	StateOpen     State = "open"      // Failing; rejecting requests
+	StateHalfOpen State = "half-open" // Testing recovery
 )
 
 // CircuitBreaker prevents cascading failures from external services.
@@ -30,12 +30,12 @@ type CircuitBreaker struct {
 	lastOpenTime    time.Time
 
 	// Configuration
-	name            string
+	name             string
 	failureThreshold int32         // Open after N failures
 	successThreshold int32         // Close after N successes in HalfOpen
-	timeout         time.Duration // Transition from Open to HalfOpen
-	onStateChange   func(State)
-	log             func(string, ...interface{})
+	timeout          time.Duration // Transition from Open to HalfOpen
+	onStateChange    func(State)
+	log              func(string, ...interface{})
 }
 
 // NewCircuitBreaker creates a new circuit breaker.
@@ -137,11 +137,11 @@ func (cb *CircuitBreaker) GetStats() map[string]interface{} {
 	defer cb.mu.RUnlock()
 
 	return map[string]interface{}{
-		"state":              cb.state,
-		"failure_count":      atomic.LoadInt32(&cb.failureCount),
-		"success_count":      atomic.LoadInt32(&cb.successCount),
-		"last_failure_time":  cb.lastFailureTime,
-		"last_open_time":     cb.lastOpenTime,
+		"state":               cb.state,
+		"failure_count":       atomic.LoadInt32(&cb.failureCount),
+		"success_count":       atomic.LoadInt32(&cb.successCount),
+		"last_failure_time":   cb.lastFailureTime,
+		"last_open_time":      cb.lastOpenTime,
 		"time_until_recovery": cb.timeout - time.Since(cb.lastOpenTime),
 	}
 }
@@ -177,9 +177,9 @@ func (cb *CircuitBreaker) Reset() {
 
 // Pool manages multiple circuit breakers for different external services.
 type Pool struct {
-	mu          sync.RWMutex
-	breakers    map[string]*CircuitBreaker
-	log         func(string, ...interface{})
+	mu       sync.RWMutex
+	breakers map[string]*CircuitBreaker
+	log      func(string, ...interface{})
 }
 
 // NewPool creates a new circuit breaker pool.

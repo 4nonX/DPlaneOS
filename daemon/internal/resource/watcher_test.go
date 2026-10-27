@@ -52,7 +52,6 @@ func TestWatcherCallbackOnCritical(t *testing.T) {
 	}
 }
 
-
 func TestCriticalResources(t *testing.T) {
 	got := ResourceStatus{DiskUsagePercent: 50, MemoryPercent: 96, FileDescriptorPercent: 90}.CriticalResources()
 	if len(got) != 2 || got["memory"] != 96 || got["file_descriptors"] != 90 {

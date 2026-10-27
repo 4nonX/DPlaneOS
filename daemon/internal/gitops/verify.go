@@ -37,16 +37,28 @@ func VerifyAppliedServices(desired *DesiredState) *VerificationReport {
 
 	// If any SMB shares are defined, expect port 445 to be open
 	if len(desired.Shares) > 0 {
-		probes = append(probes, struct{ name string; port int }{"SMB", 445})
+		probes = append(probes, struct {
+			name string
+			port int
+		}{"SMB", 445})
 	}
 	// If any NFS exports are defined, expect port 2049 to be open
 	if len(desired.NFS) > 0 {
-		probes = append(probes, struct{ name string; port int }{"NFS", 2049})
+		probes = append(probes, struct {
+			name string
+			port int
+		}{"NFS", 2049})
 	}
 	// Always probe essential management services (Phase 12.6)
 	// API is probed via nginx on port 80; the daemon itself uses a Unix socket.
-	probes = append(probes, struct{ name string; port int }{"nginx", 80})
-	probes = append(probes, struct{ name string; port int }{"SSH", 22})
+	probes = append(probes, struct {
+		name string
+		port int
+	}{"nginx", 80})
+	probes = append(probes, struct {
+		name string
+		port int
+	}{"SSH", 22})
 
 	// 2. Execute probes with linear backoff (3 attempts over ~10 seconds)
 	for _, p := range probes {

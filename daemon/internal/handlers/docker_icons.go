@@ -18,13 +18,13 @@ package handlers
 //   3. Generic fallback: "deployed_code"
 
 import (
-	"regexp"
-	"io"
 	"encoding/json"
+	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"dplaned/internal/config"
@@ -359,4 +359,3 @@ type IconMapEntry struct {
 	Match string `json:"match"` // lowercased substring of image name
 	Icon  string `json:"icon"`  // Material Symbol name
 }
-

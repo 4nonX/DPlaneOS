@@ -10,10 +10,10 @@ import (
 
 // MonitorEvent represents a monitoring event to send to clients
 type MonitorEvent struct {
-	Type      string      `json:"type"`
-	Timestamp time.Time   `json:"timestamp"`
-	Data      any `json:"data"`
-	Level     string      `json:"level"` // info, warning, critical
+	Type      string    `json:"type"`
+	Timestamp time.Time `json:"timestamp"`
+	Data      any       `json:"data"`
+	Level     string    `json:"level"` // info, warning, critical
 }
 
 // MonitorHub manages WebSocket connections for monitoring
@@ -88,7 +88,7 @@ func (h *MonitorHub) Broadcast(eventType string, data any, level string) {
 		Data:      data,
 		Level:     level,
 	}
-	
+
 	// Non-blocking send
 	select {
 	case h.broadcast <- event:

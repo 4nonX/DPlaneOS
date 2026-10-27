@@ -33,13 +33,13 @@ func SystemHealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type healthResp struct {
-		Success         bool     `json:"success"`
-		ROPartitions    []string `json:"ro_partitions"`
-		FilesystemRO    bool     `json:"filesystem_ro"`
-		NTPSynced       bool     `json:"ntp_synced"`
-		NTPOffset       string   `json:"ntp_offset,omitempty"`
-		ServiceError    string   `json:"service_error,omitempty"`
-		CheckedAt       string   `json:"checked_at"`
+		Success      bool     `json:"success"`
+		ROPartitions []string `json:"ro_partitions"`
+		FilesystemRO bool     `json:"filesystem_ro"`
+		NTPSynced    bool     `json:"ntp_synced"`
+		NTPOffset    string   `json:"ntp_offset,omitempty"`
+		ServiceError string   `json:"service_error,omitempty"`
+		CheckedAt    string   `json:"checked_at"`
 	}
 
 	respondOK(w, healthResp{
@@ -148,4 +148,3 @@ func lastServiceError(service string) string {
 	}
 	return strings.Join(kept, "\n")
 }
-

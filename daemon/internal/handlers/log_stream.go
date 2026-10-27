@@ -56,8 +56,8 @@ func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")         // disable nginx buffering
-	w.Header().Set("Referrer-Policy", "no-referrer")   // prevent ticket leaking via Referer
+	w.Header().Set("X-Accel-Buffering", "no")        // disable nginx buffering
+	w.Header().Set("Referrer-Policy", "no-referrer") // prevent ticket leaking via Referer
 
 	// Build journalctl args - tail last 20 lines then follow
 	args := []string{"--no-pager", "--follow", "-n", "20", "--output=short-iso"}
@@ -108,4 +108,3 @@ func sendSSEEvent(w http.ResponseWriter, f http.Flusher, eventType, data string)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, escaped)
 	f.Flush()
 }
-

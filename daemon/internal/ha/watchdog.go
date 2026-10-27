@@ -5,7 +5,7 @@ import "database/sql"
 // WatchdogConfig holds the hardware watchdog configuration.
 type WatchdogConfig struct {
 	Enable         bool   `json:"enable"`
-	Device         string `json:"device"`          // e.g. /dev/watchdog
+	Device         string `json:"device"`           // e.g. /dev/watchdog
 	TimeoutSecs    int    `json:"timeout_secs"`     // kernel watchdog timeout; must be < failover_after
 	PetIntervalSec int    `json:"pet_interval_sec"` // how often to write (should be < timeout/2)
 }
