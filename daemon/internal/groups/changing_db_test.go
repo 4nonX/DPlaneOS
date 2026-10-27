@@ -34,11 +34,25 @@ func TestTakeoverShowsTheChangeWhileImporting(t *testing.T) {
 		Candidates: []string{"ka", "kb"}, Owner: "kb", Epoch: 1, Version: 1}); err != nil {
 		t.Fatal(err)
 	}
+	// zpool list waits for the import and times out meanwhile.
+	importing := false
+	list := m.ops.ImportedPools
+	m.ops.ImportedPools = func() (map[string]string, error) {
+		if importing {
+			return nil, errors.New("zpool list: timed out")
+		}
+		return list()
+	}
 	var during GroupStatus
 	m.ops.ImportForce = func(string) error {
+		importing = true
 		imported["tank"] = "11"
 		during = status(t, m, "data")
+		importing = false
 		return nil
+	}
+	if _, err := m.currentView(); err != nil { // as FailoverTick does first
+		t.Fatal(err)
 	}
 	if err := m.takeover("data", "automatic failover"); err != nil {
 		t.Fatal(err)

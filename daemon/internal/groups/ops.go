@@ -201,6 +201,7 @@ type Manager struct {
 	sharedList  *string           // the shared pool list last written (nil: not yet)
 	addrApplied map[string]string // group → "iface|cidr" put on this node
 	moving      map[string]bool   // owner changes (moves, takeovers) in progress: activation leaves these alone
+	lastPools   map[string]string // the last pool listing that succeeded (statuses during an import)
 	peerMaint   map[string]bool   // members' maintenance mode, as last reported
 }
 
@@ -229,12 +230,41 @@ func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func
 }
 
 func (m *Manager) currentView() (View, error) {
-	v := m.view()
-	v.Self = m.self()
 	imported, err := m.ops.ImportedPools()
 	if err != nil {
+		v := m.view()
+		v.Self = m.self()
 		return v, err
 	}
+	m.fmu.Lock()
+	m.lastPools = imported
+	m.fmu.Unlock()
+	return m.viewWith(imported), nil
+}
+
+// statusView is currentView for showing the statuses. While this node
+// imports pools for an owner change, `zpool list` waits for the import
+// (with multihost over half a minute) and times out: the statuses then use
+// the last listing, which the import is about to change only for the
+// changing group. Decisions never use it: they change nothing when the
+// listing fails.
+func (m *Manager) statusView() (View, error) {
+	v, err := m.currentView()
+	if err == nil {
+		return v, nil
+	}
+	m.fmu.Lock()
+	last, changing := m.lastPools, len(m.moving) > 0
+	m.fmu.Unlock()
+	if !changing || last == nil {
+		return v, err
+	}
+	return m.viewWith(last), nil
+}
+
+func (m *Manager) viewWith(imported map[string]string) View {
+	v := m.view()
+	v.Self = m.self()
 	v.ImportedHere = map[string]bool{}
 	for name := range imported {
 		v.ImportedHere[name] = true
@@ -246,7 +276,7 @@ func (m *Manager) currentView() (View, error) {
 		v.Changing[name] = true
 	}
 	m.fmu.Unlock()
-	return v, nil
+	return v
 }
 
 // GroupStatus is a group with this node's evaluation.
@@ -266,7 +296,7 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := m.currentView()
+	v, err := m.statusView()
 	if err != nil {
 		return nil, err
 	}
