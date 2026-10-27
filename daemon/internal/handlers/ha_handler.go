@@ -165,16 +165,16 @@ func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"success":               true,
-		"watchdog_available":    watchdogAvail,
-		"watchdog_device":       watchdogDevice,
-		"fenced_running":        fencedRunning,
-		"fenced_devices":        fencedDevices,
-		"pool_sg_devices":       poolSGDevices,
-		"provisional_path":      provPath,
+		"success":                true,
+		"watchdog_available":     watchdogAvail,
+		"watchdog_device":        watchdogDevice,
+		"fenced_running":         fencedRunning,
+		"fenced_devices":         fencedDevices,
+		"pool_sg_devices":        poolSGDevices,
+		"provisional_path":       provPath,
 		"provisional_path_label": provLabel,
-		"provisional_reason":    provReason,
-		"probe_required":        probeRequired,
+		"provisional_reason":     provReason,
+		"probe_required":         probeRequired,
 	})
 }
 
@@ -240,11 +240,11 @@ func (h *HAHandler) ProbeSCSIDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(devices) == 0 {
 			respondJSON(w, http.StatusOK, map[string]any{
-				"success":        true,
+				"success":         true,
 				"auto_enumerated": true,
-				"results":        []any{},
-				"all_supported":  true,
-				"message":        "No ZFS pool member disks found - pool may not be imported or no SAS/SATA disks present",
+				"results":         []any{},
+				"all_supported":   true,
+				"message":         "No ZFS pool member disks found - pool may not be imported or no SAS/SATA disks present",
 			})
 			return
 		}

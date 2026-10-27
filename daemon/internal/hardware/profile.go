@@ -15,35 +15,35 @@ import (
 // Profile describes the hardware capabilities of this appliance.
 // Used to enable/disable features based on what's actually available.
 type Profile struct {
-	Timestamp          time.Time
-	Hostname           string
-	OS                 string
-	Kernel             string
-	CPUCount           int
-	MemoryGB           int
+	Timestamp time.Time
+	Hostname  string
+	OS        string
+	Kernel    string
+	CPUCount  int
+	MemoryGB  int
 
 	// BMC/Out-of-band management
-	BMCType            string // "redfish", "ipmi", "ilo4", "idrac", "none"
-	BMCAddress         string
+	BMCType    string // "redfish", "ipmi", "ilo4", "idrac", "none"
+	BMCAddress string
 
 	// Storage controllers
-	SASControllers     int    // Number of SAS RAID controllers
-	SASSlotsTotal      int
-	NVMeControllers    int
+	SASControllers  int // Number of SAS RAID controllers
+	SASSlotsTotal   int
+	NVMeControllers int
 
 	// Enclosures
-	HasSESSupport      bool   // SCSI Enclosure Services available
-	SESEnclosures      int
+	HasSESSupport bool // SCSI Enclosure Services available
+	SESEnclosures int
 
 	// Networking
-	BondingSupport     bool
-	VLANSupport        bool
-	NICs                int
+	BondingSupport bool
+	VLANSupport    bool
+	NICs           int
 
 	// Features implied by hardware
-	Capabilities       map[string]bool // Feature → available (e.g., "ha_clustering" → true)
-	Warnings           []string        // Non-fatal detection issues
-	Errors             []string        // Fatal detection issues
+	Capabilities map[string]bool // Feature → available (e.g., "ha_clustering" → true)
+	Warnings     []string        // Non-fatal detection issues
+	Errors       []string        // Fatal detection issues
 }
 
 // Detector detects hardware capabilities.

@@ -45,7 +45,7 @@ var ftpMu sync.RWMutex
 
 type FTPConfig struct {
 	Enabled         bool     `json:"enabled"`
-	Mode            string   `json:"mode"`             // "ftp" | "ftps"
+	Mode            string   `json:"mode"` // "ftp" | "ftps"
 	Port            int      `json:"port"`
 	PassiveMinPort  int      `json:"passive_min_port"`
 	PassiveMaxPort  int      `json:"passive_max_port"`

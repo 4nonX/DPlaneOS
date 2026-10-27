@@ -336,9 +336,9 @@ func restoreBond(b BondState) error {
 
 func restoreVLAN(v VLANState) error {
 	if err := netlinkx.LinkAdd(netlinkx.LinkAttrs{
-		Name:     v.Name,
-		Type:     netlinkx.LinkTypeVLAN,
-		VLANID:   v.VID,
+		Name:       v.Name,
+		Type:       netlinkx.LinkTypeVLAN,
+		VLANID:     v.VID,
 		ParentName: v.Parent,
 	}); err != nil {
 		return fmt.Errorf("create VLAN: %w", err)
@@ -363,4 +363,3 @@ func hasAddress(link netlinkx.LinkInfo, cidr string) bool {
 	}
 	return false
 }
-

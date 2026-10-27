@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"dplaned/internal/cmdutil"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"dplaned/internal/cmdutil"
 	"log"
+	"net/http"
 
 	"dplaned/internal/security"
 )
@@ -29,7 +29,7 @@ type Device struct {
 func (h *RemovableMediaHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	// Use lsblk to list removable devices
 	output, err := cmdutil.RunFast("lsblk", "-J", "-o", "NAME,SIZE,MODEL,MOUNTPOINT,RM,TYPE")
-	
+
 	if err != nil {
 		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
@@ -97,7 +97,9 @@ func (h *RemovableMediaHandler) MountDevice(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Create mount point if it doesn't exist
-	if _, err := cmdutil.RunFast("mkdir", "-p", req.MountPoint); err != nil { log.Printf("WARN: mkdir: %v", err) }
+	if _, err := cmdutil.RunFast("mkdir", "-p", req.MountPoint); err != nil {
+		log.Printf("WARN: mkdir: %v", err)
+	}
 
 	// Mount the device
 	output, err := cmdutil.RunMedium("mount", req.Device, req.MountPoint)
@@ -161,7 +163,9 @@ func (h *RemovableMediaHandler) EjectDevice(w http.ResponseWriter, r *http.Reque
 	}
 
 	// First unmount
-	if _, err := cmdutil.RunFast("umount", req.Device); err != nil { log.Printf("WARN: pre-eject umount: %v", err) }
+	if _, err := cmdutil.RunFast("umount", req.Device); err != nil {
+		log.Printf("WARN: pre-eject umount: %v", err)
+	}
 
 	// Then eject
 	output, err := cmdutil.RunFast("eject", req.Device)
@@ -177,4 +181,3 @@ func (h *RemovableMediaHandler) EjectDevice(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
-

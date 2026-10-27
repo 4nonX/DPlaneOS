@@ -132,15 +132,15 @@ func (h *ZFSHandler) HandlePoolDestroy(w http.ResponseWriter, r *http.Request) {
 // PoolFeature represents a single ZFS feature flag.
 type PoolFeature struct {
 	Name        string `json:"name"`
-	State       string `json:"state"`    // active | enabled | disabled
+	State       string `json:"state"` // active | enabled | disabled
 	Description string `json:"description,omitempty"`
 }
 
 // PoolCheckpointStatus contains checkpoint information for a pool.
 type PoolCheckpointStatus struct {
-	Pool       string `json:"pool"`
+	Pool          string `json:"pool"`
 	HasCheckpoint bool   `json:"has_checkpoint"`
-	Size       string `json:"size,omitempty"`
+	Size          string `json:"size,omitempty"`
 }
 
 // GetCheckpointStatus handles GET /api/zfs/checkpoint

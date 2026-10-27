@@ -5,66 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## v16.0.2 (2026-10-26) - "Bedrock"
-
-### Security
-
-- **The daemon was built with Go 1.26.5,** which has 17 standard library vulnerabilities the daemon reaches, among them HTTP/2 server crashes and memory exhaustion (GO-2026-6617, GO-2026-6603), HTTP/1 connection desynchronization (GO-2026-6613), unlimited Range headers (GO-2026-6609) and the trust of compromised intermediate certificates (GO-2026-6809). The flake builds the daemon with the Go of its nixpkgs; CI scanned the source with the newer Go of `daemon/go.mod` instead and never saw them, and it let one vulnerability through as long as the count matched a "known" one that was fixed long ago. The daemon is now built with Go 1.26.10, which fixes all of them. CI checks that the flake builds with the Go of `daemon/go.mod` and fails on any vulnerability the code reaches.
-- **The operating system was three months behind on security fixes:** the nixpkgs pin (all packages of the ISOs and installed systems: kernel, OpenSSL, OpenSSH, nginx, PostgreSQL, Samba) dated from 2026-07-21. It now follows nixos-26.05 of 2026-10-25, and CI fails when the pin falls more than 30 days behind its channel.
-- Dependencies with known vulnerabilities the daemon does not call, upgraded: `go-acme/lego` 4.35.2 (was 4.33.0), `go-ldap/ldap` 3.4.15 with `Azure/go-ntlmssp` 0.1.1 (a malformed NTLM challenge could crash the LDAP client).
-
-### Fixed
-
-- **Settings › Features showed working features as disabled.** The tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
-- **Changes failed after signing in until the page was reloaded** (since v5.3.0). The login page has no session, so its CSRF request was refused and the web interface kept a placeholder token; after the login every change (creating a pool, saving a setting) was refused with "Forbidden (Invalid CSRF token)" until a reload fetched the session's token. The token now belongs to the session: it is fetched with the first change of a new session and dropped at login and logout. Changes started at the same time share one token request (each request replaces the session's token). A change refused because another tab fetched a new token is sent again once with the current one; uploads, the configuration restore, the support bundle, diagnostics, custom icons and the API explorer do the same.
-- **A change that lost a sync conflict could disappear without a trace** (since v15.1.0). When the same resource was changed on two nodes and the default rule picked the other node's version, the losing node kept its change as a proposal only if it noticed the conflict first. If the winning node settled the conflict before then, the losing node simply took over the result, and its own change was never offered again. The losing node now applies the same rule when it receives the winner's resolution and keeps its change as a proposal either way. Which node noticed first depended on timing; a CI run of the two-node VM test caught it.
-- **Files › Download saved the error as the file** when the daemon refused the download (no permission, the file gone): the file then held the daemon's error message. The download now shows the error instead.
-- **The event log recorded every critical resource as disk.** Memory and file descriptors at their critical level are now recorded under their own names.
-
-### Removed
-
-- Startup code nothing used: the feature flag store (table `feature_flags`), an operation journal no operation wrote to (table `operation_journal`) with its startup "recovery" and rollback manager, a resource-guard middleware applied nowhere, and an unused ZFS consistency check. Migration 35 drops both tables. The resource watcher, health checks (`/api/health`) and the event log are unchanged.
-
-
-## v16.0.1 (2026-10-24) - "Bedrock"
-
-### Security
-
-- **Session tokens were stored as they are.** A copy of the database (a dump, a backup) held every live session. The sessions table now holds the SHA-256 of each token; existing sessions are converted by migration 34 and keep working. The session list (the Sessions tab of Identity › Users & Groups and of Security › Security Settings) also sent the tokens of a user's other sessions to the browser; it now lists the stored keys, which cannot be used to log in.
-- **The appliance's nginx sent no security headers.** The Content-Security-Policy, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy` existed only in the configuration for installs outside NixOS. nginx now sends them on every response. Images may come from HTTPS sites (container icons can be remote URLs).
-- **Any logged-in user could call the internal timer hooks.** The hooks of the snapshot, SMART and rsync timers accepted a request with the per-boot internal token, but also any session, whatever its role, because they have no permission of their own: a viewer could create snapshots and, with a short retention, delete older ones, start SMART tests and run rsync jobs. They now refuse every request without the token, as does the disk-event hook.
-- **The 2FA setup sent the TOTP secret to a QR code web service.** The setup page drew its QR code with `api.qrserver.com`, so the secret of every user who set up 2FA went to a third party, which could generate that user's codes. The daemon now draws the QR code itself; the secret does not leave the machine.
-- **The live ISO force-imported every pool it found** (`zpool import -a -f`). Booting it on a machine whose disks another system had imported (the installed system after a power loss, a cluster node on shared disks) imported those pools a second time, which can destroy them. It now imports only the pools that are free (exported, or last used by the live system), and exports its pools when it shuts down. A pool another system used last is imported on request: Storage › ZFS Pools → Import Pool, confirming the other system is off.
-
-### Fixed
-
-- **Pools were not imported at boot on installed systems.** NixOS imports only the pools of `fileSystems` and `boot.zfs.extraPools`, and DPlaneOS uses neither: after a reboot every pool stayed exported until imported by hand, and the update check (which requires every pool imported before the update) rolled updates back on systems with pools. `dplaneos-zfs-import` now imports the pools in `/etc/zfs/zpool.cache` at boot, each from its disks by GUID: the disk labels, not the cache, say which system used the pool last, so a pool another system imported since is not taken over. The pools of a shared storage group are never imported at boot, even with a cache entry (the daemon lists them in `/var/lib/dplaneos/shared-pools` on every member); only their owner's daemon imports them. The installer VM test creates a pool, reboots and checks it is back (it fails without the fix), and checks that a pool listed as shared is left alone.
-- **Every installed system had the ZFS host ID `00000000`.** ZFS multihost (a protection layer of shared storage groups) cannot be enabled without a host ID, and pools on shared disks could not tell the nodes apart. Each machine now creates its own host ID once (`/persist/etc/hostid`) and installs it as `/etc/hostid` at every activation. A pool that was imported when a 16.0.0 machine went down (ZFS records no host ID 0) looks like another system's to the same machine with its new host ID; the boot imports such a pool when ZFS says this hostname used it last without a host ID, and leaves every other pool that needs a force as it is. Tested both ways in the installer VM test.
-- **Disk hot-swap events never reached the daemon.** The udev rules existed only for installs outside NixOS, and the daemon refused every event that came over its socket (its localhost check accepted only loopback IP addresses): a returning disk was neither brought back online nor its pool imported. The NixOS module now passes disk add and remove events to the daemon, which accepts them only with this boot's internal token (`/run/dplaneos/internal-token`, readable by root only), like the timer hooks: requests through the web server arrive over the same socket, with a user's session, and are refused.
-- **Session list:** revoking a session other than the current one never worked (the list showed shortened ids), the current session was not marked, and a short id crashed the request.
-- **The flake exported no daemon or frontend package** (`nix build .#dplaneos-daemon-cgo` failed): a shallow merge replaced them with the ISO and witness images. CI now checks the packages exist.
-- **The Audit Log page** showed "No audit entries have been recorded yet" instead of the log.
-- **Release notes** gave an install command for a domain that does not exist; they now point to the ISOs and the guides.
-- **Docker kept running when a pool failed and stopping it failed once:** the pool monitor recorded Docker as stopped and did not try again. A failed stop is now tried again at every check while the pool is failed.
-- **The `/persist` space guard** truncated logs in a directory nothing writes to and vacuumed the journal, which is on the system disk; it now truncates the daemon's and Samba's logs on `/persist` only.
-- **`/etc/dplaneos/rclone.conf`** (cloud sync credentials, rclone's own format) is set to mode 0600 after every change, whatever rclone wrote.
-- **Releases:** the release job attached the live ISOs only because the installer ISOs' download pattern also matched them; one download and one signing step now cover all ISOs, and a release fails when one of its file patterns matches nothing.
-- The live console texts now say that SSH to the live system needs a root password set first (`passwd`).
-
-### Changed
-
-- The sidebar: **Git** is under System (it holds the whole configuration, not only containers), **High Availability** is called as on its page.
-
-### Removed
-
-- Code nothing used: a feature-gate middleware applied nowhere, empty extension hooks, two CLI tools, two tables (migration 33), `setup-nixos.sh` (it edited a `configuration.nix` an installed system does not use), a persist check that could never run (`/persist` is mounted before it), and the SQLite migration guide.
-
-### Documentation
-
-- Corrected throughout to match the system: installation (prompts, UEFI, SSH), the NixOS documents, the administrator, recovery, troubleshooting, alerts (the real events), optional protocols, CTDB, HA hardware, port, error, dependency, threat model, architecture and security documents.
-
-
-## v16.0.0 (2026-10-23) - "Bedrock"
+## v16.0.0 (2026-10-27) - "Bedrock"
 
 Reliability audit against TrueNAS SCALE (middleware, zettarepl), sanoid and Proxmox (pve-ha-manager), with the ZFS, Samba, NFS, LIO, systemd and softdog behaviour reproduced on real systems.
 
@@ -81,6 +22,13 @@ Update promptly. The versions given are the releases that have the flaw.
 - **Firewall rules with a source address opened the port to everyone** (NixOS, v7.2.0 to v15.1.0). The source was dropped when the rule went into the NixOS configuration.
 - **Configuration restore revived logged-out sessions** (v12.1.0 to v15.1.0). The restore brought back the sessions in the backup, logging back in whoever had logged out since.
 - **The ACME challenge server listened on all interfaces** (port 8080 during a certificate request, v6.2.0 to v15.1.0). It now listens on 127.0.0.1, behind nginx.
+- **Session tokens were stored as they are** (up to v15.1.0). A copy of the database (a dump, a backup) held every live session. The sessions table now holds the SHA-256 of each token; existing sessions are converted by migration 34 and keep working. The session list (the Sessions tab of Identity › Users & Groups and of Security › Security Settings) also sent the tokens of a user's other sessions to the browser; it now lists the stored keys, which cannot be used to log in.
+- **The appliance's nginx sent no security headers** (NixOS, up to v15.1.0). The Content-Security-Policy, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy` existed only in the configuration for installs outside NixOS. nginx now sends them on every response. Images may come from HTTPS sites (container icons can be remote URLs).
+- **Any logged-in user could call the internal timer hooks** (up to v15.1.0). The hooks of the snapshot, SMART and rsync timers accepted a request with the per-boot internal token, but also any session, whatever its role, because they have no permission of their own: a viewer could create snapshots and, with a short retention, delete older ones, start SMART tests and run rsync jobs. They now refuse every request without the token, as does the disk-event hook.
+- **The 2FA setup sent the TOTP secret to a QR code web service** (up to v15.1.0). The setup page drew its QR code with `api.qrserver.com`, so the secret of every user who set up 2FA went to a third party, which could generate that user's codes. The daemon now draws the QR code itself; the secret does not leave the machine.
+- **The daemon was built with an older Go than CI scanned** (up to v15.1.0). The flake built the daemon with the Go of its nixpkgs (1.26.5 or older); CI scanned the source with the newer Go of `daemon/go.mod` instead and never saw the standard library vulnerabilities the shipped daemon reaches, among them HTTP/2 server crashes and memory exhaustion (GO-2026-6617, GO-2026-6603), HTTP/1 connection desynchronization (GO-2026-6613), unlimited Range headers (GO-2026-6609) and the trust of compromised intermediate certificates (GO-2026-6809). CI also let one vulnerability through as long as the count matched a "known" one that was fixed long ago. The daemon is now built with Go 1.26.10, which fixes all of them. CI checks that the flake builds with the Go of `daemon/go.mod` and fails on any vulnerability the code reaches.
+- **The operating system was months behind on security fixes:** the nixpkgs pin of v15.1.0 (all packages of the ISOs and installed systems: kernel, OpenSSL, OpenSSH, nginx, PostgreSQL, Samba) dated from 2026-06-01. It now follows nixos-26.05 of 2026-10-25, and CI fails when the pin falls more than 30 days behind its channel.
+- Dependencies with known vulnerabilities the daemon does not call, upgraded: `go-acme/lego` 4.35.2 (was 4.33.0), `go-ldap/ldap` 3.4.15 with `Azure/go-ntlmssp` 0.1.1 (a malformed NTLM challenge could crash the LDAP client).
 - Not exploitable, fixed anyway: a password changed through GitOps kept the previous password's SCRAM keys. SCRAM login came with v14.0.0 and never worked in any release (it read a column that does not exist), so the old keys were never usable.
 
 ### Upgrade notes
@@ -113,6 +61,13 @@ Update promptly. The versions given are the releases that have the flaw.
 - The A/B update scheme: `dplaneos-ota-update`, signed update bundles, `services.dplaneos.ota.signingKey`, and the `system-b` partition on new installs.
 - "Fix Permissions" in `dplaneos-recovery` (it broke PostgreSQL, see below).
 - Live boot: the `/mnt/usb-persist` automount and the unused `/var/lib/dplaneos-persist` link (see "Fixed: live boot").
+- **Settings › Features:** the tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
+- `setup-nixos.sh` (it edited a `configuration.nix` an installed system does not use) and the SQLite migration guide.
+- Code nothing used: the feature flag store (table `feature_flags`), an operation journal no operation wrote to (table `operation_journal`) with its startup "recovery" and rollback manager, a feature-gate and a resource-guard middleware applied nowhere, an unused ZFS consistency check, empty extension hooks, two CLI tools, and a persist check that could never run (`/persist` is mounted before it). Migrations 33 and 35 drop the tables nothing uses. The resource watcher, health checks (`/api/health`) and the event log are unchanged.
+
+### Changed
+
+- The sidebar: **Git** is under System (it holds the whole configuration, not only containers), **High Availability** is called as on its page.
 
 ### Fixed: storage and replication
 
@@ -121,6 +76,9 @@ Update promptly. The versions given are the releases that have the flaw.
 - **Replication:** a scheduled run could pick a child dataset's newest snapshot; encrypted datasets could not be replicated (`zfs send -R` without `-w`); received datasets mounted over the backup host's paths; a schedule stayed "running" forever after a daemon restart or a fast failure of "Run now"; a retry after an interrupted stream failed (`must specify -F`); `zfs send` errors were lost; two sources replicating to the same remote name failed with misleading messages (now detected by GUID).
 - **Hot-swap:** the auto-import on disk insertion never ran (the registry was overwritten before it was read). A returning member of an imported pool is brought back online.
 - **GitOps:** an empty dataset was never deletable (an empty filesystem reports ~100 KiB `used`) and an approved delete failed with "please report this as a bug". Datasets and pools that hold anything are never destroyed, approved or not.
+- **Disk hot-swap events never reached the daemon** (NixOS): the udev rules existed only for installs outside NixOS, and the daemon refused every event that came over its socket (its localhost check accepted only loopback IP addresses): a returning disk was neither brought back online nor its pool imported. The NixOS module now passes disk add and remove events to the daemon, which accepts them only with this boot's internal token (`/run/dplaneos/internal-token`, readable by root only), like the timer hooks: requests through the web server arrive over the same socket, with a user's session, and are refused.
+- **Docker kept running when a pool failed and stopping it failed once:** the pool monitor recorded Docker as stopped and did not try again. A failed stop is now tried again at every check while the pool is failed.
+- **`/etc/dplaneos/rclone.conf`** (cloud sync credentials, rclone's own format) is set to mode 0600 after every change, whatever rclone wrote.
 
 ### Fixed: HA and clusters
 
@@ -130,6 +88,9 @@ Update promptly. The versions given are the releases that have the flaw.
 - **HA watchdog:** a graceful stop of `dplaned` (OTA, `nixos-rebuild`, recovery) left `/dev/watchdog` armed and reset the node ~30 s later. It is now disarmed unless this node owns storage in a cluster.
 - **dplane-fenced** was killed by systemd every 60 s (`WatchdogSec` without keep-alives); it now sends `READY=1` and `WATCHDOG=1` (`Type=notify`).
 - **Fleet rollouts** with no soak time compared the wave's database time (`NOW()`) with the daemon's clock and could miss the advance under load.
+- **A change that lost a sync conflict could disappear without a trace** (since v15.1.0). When the same resource was changed on two nodes and the default rule picked the other node's version, the losing node kept its change as a proposal only if it noticed the conflict first. If the winning node settled the conflict before then, the losing node simply took over the result, and its own change was never offered again. The losing node now applies the same rule when it receives the winner's resolution and keeps its change as a proposal either way. Which node noticed first depended on timing; a CI run of the two-node VM test caught it.
+- **A takeover showed a false problem while the pools were imported.** On the node taking a shared-storage group over (automatic failover or Take over), the group showed "this node is not the owner but has these shared pools imported" in red, and counted it in `dplaneos_group_problems`, for as long as the import ran (with ZFS multihost over half a minute). A planned move showed similar problems on both nodes for a moment. The group now shows "Changing owner" while its pools come in or go out, and nothing serves or writes it until the new owner is stored. During the import the storage groups and the cluster map also failed to load after 10 seconds ("Failed to read storage groups"), because `zpool list` waits for the import; they now show the pools as last listed until it is done. CI runs of the failover VM test read the status in that window.
+- **A move refused by the target could leave a pool on the target.** When the target imported some of the group's pools but not all of them, it kept the ones it had imported: the old owner could then not import them back and reported the pools as imported nowhere, while the target held them without owning the group. The target now gives back the pools it imported; a pool it cannot export is named in the refusal, with the node that still holds it. It also wrote the group's stacks and NVMe-oF exports to its own configuration even though the move was refused; it now writes them only once it is the owner.
 
 ### Fixed: installer, boot and updates
 
@@ -142,15 +103,23 @@ Update promptly. The versions given are the releases that have the flaw.
 - **A/B OTA could not work:** no "DPlaneOS (Slot A/B)" boot entries existed, root was always `system-a`, nothing built bundles, the signing key defaulted to empty and the health unit waited for a nonexistent `smbd.service`.
 - **NixOS apply:** `nixos-rebuild` ran inside dplaned's cgroup, so a switch that restarted dplaned killed itself halfway; it now runs in its own transient unit. Validate and rollback no longer time out after 60 s, and rolling back to a specific generation runs `switch-to-configuration` instead of only its `activate` script.
 - **File-sharing accounts could hold up the daemon's start:** the accounts (`useradd`, `pdbedit`) were synchronised before the API started, with no time limit on the tools, so a tool that blocked would have kept the web interface down. They are now synchronised in the background, each tool call is limited to 60 s, and the share configuration is written one change at a time.
+- **Pools were not imported at boot on installed systems.** NixOS imports only the pools of `fileSystems` and `boot.zfs.extraPools`, and DPlaneOS uses neither: after a reboot every pool stayed exported until imported by hand, and the update check (which requires every pool imported before the update) would have rolled updates back on systems with pools. `dplaneos-zfs-import` now imports the pools in `/etc/zfs/zpool.cache` at boot, each from its disks by GUID: the disk labels, not the cache, say which system used the pool last, so a pool another system imported since is not taken over. The pools of a shared storage group are never imported at boot, even with a cache entry (the daemon lists them in `/var/lib/dplaneos/shared-pools` on every member); only their owner's daemon imports them. The installer VM test creates a pool, reboots and checks it is back (it fails without the fix), and checks that a pool listed as shared is left alone.
+- **Installed systems had the ZFS host ID `00000000`.** ZFS multihost (a protection layer of shared storage groups) cannot be enabled without a host ID, and pools on shared disks could not tell the nodes apart. Each machine now creates its own host ID once (`/persist/etc/hostid`, a non-zero one kept there is kept) and installs it as `/etc/hostid` at every activation. A pool that was imported when a machine with host ID 0 went down (ZFS records no host ID 0) looks like another system's to the same machine with its new host ID; the boot imports such a pool when ZFS says this hostname used it last without a host ID, and leaves every other pool that needs a force as it is. Tested both ways in the installer VM test.
+- **The flake exported no daemon or frontend package** (`nix build .#dplaneos-daemon-cgo` failed): a shallow merge replaced them with the ISO and witness images. CI now checks the packages exist.
+- **The `/persist` space guard** truncated logs in a directory nothing writes to and vacuumed the journal, which is on the system disk; it now truncates the daemon's and Samba's logs on `/persist` only.
 
 ### Fixed: live boot
 
 - **The live ISO booted plain NixOS, without D-PlaneOS** (every live ISO since v14.8.0). The ISO was a stock NixOS installer CD that only carried the live system in its store and never started it: no daemon, no web interface, no database, and NetworkManager in place of systemd-networkd. The ISO is now the live system itself. The live-boot test had tested the live configuration in a test VM, never the image. A new test (`checks.live-iso`) boots the ISO from the CD (UEFI) and checks the daemon, the web interface, the admin setup and login, and that no unit failed.
+- **The live system force-imported every pool it found** (`zpool import -a -f`). Booting it on a machine whose disks another system had imported (the installed system after a power loss, a cluster node on shared disks) would have imported those pools a second time, which can destroy them. It now imports only the pools that are free (exported, or last used by the live system), and exports its pools when it shuts down. A pool another system used last is imported on request: Storage › ZFS Pools → Import Pool, confirming the other system is off.
 - **The persistence drive kept nothing:** with a `dplane-persist` drive attached, the system mounted it and made a link `/var/lib/dplaneos-persist` to it that nothing used. The database, the settings and the network configuration stayed in RAM and were lost at every shutdown. The drive is now mounted at boot, before the firewall, networkd, PostgreSQL and the daemon start. It holds `/var/lib/dplaneos`, `/etc/dplaneos`, `/etc/target` and the daemon's network files. The live-boot VM test reboots twice with the drive and checks that the admin, its login and a VLAN made through the API are still there.
-- The console help and the live-boot guide named the daemon's unit `dplaneos`; it is `dplaned`. The guide's macOS command made an HFS+ drive, which is not used (the drive must be ext4).
+- The console help and the live-boot guide named the daemon's unit `dplaneos`; it is `dplaned`. The guide's macOS command made an HFS+ drive, which is not used (the drive must be ext4). The console texts now say that SSH to the live system needs a root password set first (`passwd`).
 - The live configuration's activation script failed (`ensureEtcDirs`) whenever the root filesystem was kept across a reboot, as in the VM tests: it touched `/etc/exports`, by then a link into the read-only store. Files are now created only when missing.
 
 ### Fixed: login, directory services and recovery
+
+- **Changes failed after signing in until the page was reloaded** (since v5.3.0). The login page has no session, so its CSRF request was refused and the web interface kept a placeholder token; after the login every change (creating a pool, saving a setting) was refused with "Forbidden (Invalid CSRF token)" until a reload fetched the session's token. The token now belongs to the session: it is fetched with the first change of a new session and dropped at login and logout. Changes started at the same time share one token request (each request replaces the session's token). A change refused because another tab fetched a new token is sent again once with the current one; uploads, the configuration restore, the support bundle, diagnostics, custom icons and the API explorer do the same.
+- **Session list:** revoking a session other than the current one never worked (the list showed shortened ids), the current session was not marked, and a short id crashed the request.
 
 - **A power loss could destroy the secrets key, and with it every sealed value:** the secrets key and the audit key were written without being synced to disk. A power loss within about 30 s of their creation (first start, or a key rotation) left an empty key file. The daemon then refused to start (`secrets key ... has wrong length 0`), and the values sealed with the lost key could never be opened again: SMB passwords, two-factor secrets, stored credentials. Key files are now synced before they are used, and so are the files a configuration restore writes. A rotation writes the new key to disk before re-encrypting and renames it after the commit, and a key left from an interrupted rotation is still accepted for opening. An empty key file left by an earlier version is replaced with a new key, with a warning, instead of stopping the daemon. Found by the VM test `hardening-standalone` on CI, which now runs without background writeback so that only synced data survives its power losses.
 - **SCRAM login** always failed: its user lookup read a column `totp_enabled` from `totp_secrets`, which has none.
@@ -172,6 +141,7 @@ Update promptly. The versions given are the releases that have the flaw.
 
 - **Alerting:** the pool heartbeat treated a degraded mirror (`UNAVAIL` member) as halted and stopped Docker; ZED checksum and data-error events were sent as info; scrub and resilver results were never examined; SMTP sent mail without Date and Message-ID headers, ignored "Require TLS" and could not use port 465; Telegram messages with `_` or `*` failed (Markdown); saving the Telegram settings had no effect until restart; replication sent an alert on every successful run; failed snapshots and certificate renewals sent none; NVMe SMART health was not evaluated.
 - **Alert dispatchers** were read and replaced without synchronisation.
+- **The event log recorded every critical resource as disk.** Memory and file descriptors at their critical level are now recorded under their own names.
 - **UPS:** low battery with the "hibernate" action never shut down; no power event raised an alert (NOTIFYCMD was a no-op), and the final ones were lost when the notify child broadcast to terminals (WALL) before running the command. The low-battery level set on the UPS page had no effect without `ignorelb`.
 - **BMC:** Redfish health, sensors and power control found no systems on any BMC that follows the specification (members were read from the service root instead of the linked collections) and the event log only on `/redfish/v1/Systems/1`; IPMI-only BMCs were never detected (probe without credentials); IPMI sensors were read from the wrong columns of `sdr elist` and critical states shown as unknown.
 
@@ -221,6 +191,11 @@ Compared with Komodo, Dockge, Portainer and Watchtower, reproduced on Docker Eng
 - A stack edit replaced the working compose file before it was checked, `.env` could not be cleared, a closed browser tab killed a running `compose up`, and two operations on one stack could run at once.
 - **Sandboxes** were never listed (wrong depth) and their cleanup was not routed (and pruned all unused Docker volumes); it now removes leftover sandbox snapshots.
 
+### Fixed: web interface
+
+- **The Audit Log page** showed "No audit entries have been recorded yet" instead of the log.
+- **Files › Download saved the error as the file** when the daemon refused the download (no permission, the file gone): the file then held the daemon's error message. The download now shows the error instead.
+
 ### Added
 
 - **Stack updates with rollback**, **image update detection** (registry digests, no pull), **per-stack auto-update**, **Git stack webhooks** (GitHub, Gitea/Forgejo, GitLab). New API: `POST /api/docker/stacks/update`, `GET /api/docker/stacks/updates`, `POST /api/docker/stacks/updates/check`, `PUT /api/docker/stacks/settings`, `POST /api/git-sync/repos/webhook-secret`, `POST /api/git-sync/repos/webhook/{id}`.
@@ -231,10 +206,15 @@ Compared with Komodo, Dockge, Portainer and Watchtower, reproduced on Docker Eng
 
 - CI now runs the installer, update, configuration restore, Active Directory, UPS and partition-label tests (job "Install, Update and Recovery"). Before, they ran only by hand.
 - The release is drafted only when every test job passes. Before, it did not wait for the hardening, fleet overlay, Git backend and arm64 API jobs.
+- The release job attached the live ISOs only because the installer ISOs' download pattern also matched them; one download and one signing step now cover all ISOs, and a release fails when one of its file patterns matches nothing.
+- CI checks that every Go file is formatted with gofmt (58 had drifted) and runs `go vet`.
+- The web interface's end-to-end tests run on the production build; the development server had hidden the sign-in failure above.
 
 ### Documentation
 
 - Corrected claims that did not match the code: kernel 6.12 (not 6.6), iSCSI via LIO/targetcli (not nvmet), no `ProtectSystem` on the daemon (and why), production daemon is a glibc/libzfs build (not static musl), libzfs does not cover send/receive, 31 RBAC permissions, NixOS `autoSnapshot` is not set up by DPlaneOS.
+- Corrected throughout to match the system: installation (prompts, UEFI, SSH), the NixOS documents, the administrator, recovery, troubleshooting, alerts (the real events), optional protocols, CTDB, HA hardware, port, error, dependency, threat model, architecture and security documents.
+- Release notes no longer give an install command for a domain that does not exist; they point to the ISOs and the guides.
 
 
 ## v15.1.0 (2026-10-15) - "Fleet"

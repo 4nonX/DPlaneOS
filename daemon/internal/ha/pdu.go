@@ -21,12 +21,12 @@ import (
 // Compatible with Digital Loggers, iBoot, Raritan, and any PDU with a simple HTTP API.
 type PDUConfig struct {
 	Enable         bool   `json:"enable"`
-	OutletOffURL   string `json:"outlet_off_url"`  // URL to cut power (e.g. http://pdu/outlet/2/off)
-	Method         string `json:"method"`           // "GET" or "POST"; default "GET"
+	OutletOffURL   string `json:"outlet_off_url"` // URL to cut power (e.g. http://pdu/outlet/2/off)
+	Method         string `json:"method"`         // "GET" or "POST"; default "GET"
 	Username       string `json:"username"`
-	PasswordFile   string `json:"password_file"`    // path to 0600 password file
+	PasswordFile   string `json:"password_file"` // path to 0600 password file
 	TimeoutSecs    int    `json:"timeout_secs"`
-	ExpectedStatus int    `json:"expected_status"`  // 0 = accept any 2xx
+	ExpectedStatus int    `json:"expected_status"` // 0 = accept any 2xx
 }
 
 // GetPDUConfig reads the PDU fencing configuration from the database.

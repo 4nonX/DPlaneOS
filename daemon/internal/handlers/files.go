@@ -269,4 +269,3 @@ func isPoolRoot(path string) bool {
 	}
 	return false
 }
-

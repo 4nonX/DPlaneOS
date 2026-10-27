@@ -25,9 +25,9 @@ type NftRule struct {
 type NftExpr map[string]any
 
 type NftMatch struct {
-	Left  NftOp   `json:"left"`
-	Op    string  `json:"op"`
-	Right any `json:"right"` // Can be float64 or []any (port or port list)
+	Left  NftOp  `json:"left"`
+	Op    string `json:"op"`
+	Right any    `json:"right"` // Can be float64 or []any (port or port list)
 }
 
 type NftOp struct {

@@ -216,10 +216,10 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 
 	// ── Bundle metadata ──────────────────────────────────────────────────
 	meta := map[string]any{
-		"generated_at":    time.Now().UTC().Format(time.RFC3339),
-		"hostname":        hostname,
+		"generated_at":     time.Now().UTC().Format(time.RFC3339),
+		"hostname":         hostname,
 		"dplaneos_version": h.version,
-		"sections":        len(sections),
+		"sections":         len(sections),
 	}
 	metaJSON, _ := json.MarshalIndent(meta, "", "  ")
 	sections = append([]bundleSection{{name: "bundle-meta.json", content: metaJSON}}, sections...)
@@ -255,4 +255,3 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 		log.Printf("support-bundle: gzip close error: %v", err)
 	}
 }
-

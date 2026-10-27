@@ -311,4 +311,3 @@ func (s *PeriodicScanner) scan() {
 func (s *PeriodicScanner) Stop() {
 	s.stopChan <- true
 }
-

@@ -118,11 +118,11 @@ func GetRAIDZExpandStatus(w http.ResponseWriter, r *http.Request) {
 
 	expanding, pct, eta := parseExpansionProgress(output)
 	respondOK(w, map[string]any{
-		"success":    true,
-		"pool":       pool,
-		"expanding":  expanding,
-		"percent":    pct,
-		"eta":        eta,
+		"success":   true,
+		"pool":      pool,
+		"expanding": expanding,
+		"percent":   pct,
+		"eta":       eta,
 	})
 }
 

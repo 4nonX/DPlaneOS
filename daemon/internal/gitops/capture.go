@@ -10,8 +10,8 @@ import "dplaned/internal/nixwriter"
 
 // CategoryCount holds the number of resources in a category.
 type CategoryCount struct {
-	InGit int  `json:"in_git"` // resources tracked in state.yaml
-	Live  int  `json:"live"`   // resources present on the live system
+	InGit int `json:"in_git"` // resources tracked in state.yaml
+	Live  int `json:"live"`   // resources present on the live system
 }
 
 // ManagedSummary is the per-category resource count map returned by the summary endpoint.

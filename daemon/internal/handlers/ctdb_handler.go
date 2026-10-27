@@ -14,23 +14,23 @@ import (
 
 // CTDBConfig represents CTDB clustering configuration for Samba HA
 type CTDBConfig struct {
-	Enable           bool     `json:"enable"`
-	DataPool         string   `json:"data_pool"`
-	DataDataset      string   `json:"data_dataset"`
-	PublicAddresses  []string `json:"public_addresses"`
-	NodeTimeout      int      `json:"node_timeout"`
-	RecoveryTimeout  int      `json:"recovery_timeout"`
-	LogLevel         int      `json:"log_level"`
+	Enable          bool     `json:"enable"`
+	DataPool        string   `json:"data_pool"`
+	DataDataset     string   `json:"data_dataset"`
+	PublicAddresses []string `json:"public_addresses"`
+	NodeTimeout     int      `json:"node_timeout"`
+	RecoveryTimeout int      `json:"recovery_timeout"`
+	LogLevel        int      `json:"log_level"`
 }
 
 // CTDBNodeStatus represents status of a single CTDB node
 type CTDBNodeStatus struct {
 	NodeID     int    `json:"node_id"`
 	Address    string `json:"address"`
-	Status     string `json:"status"`      // connected | disconnected
-	Role       string `json:"role"`        // leader | member
-	VnnMap     int    `json:"vnn_map"`     // virtual node number mapping
-	Flags      string `json:"flags"`       // node flags
+	Status     string `json:"status"`     // connected | disconnected
+	Role       string `json:"role"`       // leader | member
+	VnnMap     int    `json:"vnn_map"`    // virtual node number mapping
+	Flags      string `json:"flags"`      // node flags
 	Generation uint64 `json:"generation"` // generation counter
 }
 
@@ -44,14 +44,14 @@ type CTDBDatabaseStatus struct {
 
 // CTDBStatusResponse is the full CTDB cluster status response
 type CTDBStatusResponse struct {
-	Success           bool                 `json:"success"`
-	Enabled           bool                 `json:"enabled"`
-	DaemonRunning     bool                 `json:"daemon_running"`
-	ClusterStatus     string               `json:"cluster_status"` // healthy | degraded | unhealthy
-	Nodes             []CTDBNodeStatus     `json:"nodes"`
-	DatabaseStates    []CTDBDatabaseStatus `json:"databases"`
-	PublicIPStatus    map[string]string    `json:"public_ips"`     // IP -> owning_node_id
-	ErrorMessage      string               `json:"error,omitempty"`
+	Success        bool                 `json:"success"`
+	Enabled        bool                 `json:"enabled"`
+	DaemonRunning  bool                 `json:"daemon_running"`
+	ClusterStatus  string               `json:"cluster_status"` // healthy | degraded | unhealthy
+	Nodes          []CTDBNodeStatus     `json:"nodes"`
+	DatabaseStates []CTDBDatabaseStatus `json:"databases"`
+	PublicIPStatus map[string]string    `json:"public_ips"` // IP -> owning_node_id
+	ErrorMessage   string               `json:"error,omitempty"`
 }
 
 // HandleCTDBGetConfig returns current CTDB configuration

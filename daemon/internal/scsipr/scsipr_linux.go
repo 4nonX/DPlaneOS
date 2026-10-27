@@ -31,11 +31,11 @@ const (
 
 // PROUT service actions
 const (
-	proutRegister           = 0x00
-	proutReserve            = 0x01
-	proutRelease            = 0x02
-	proutPreempt            = 0x04
-	proutPreemptAndAbort    = 0x05
+	proutRegister             = 0x00
+	proutReserve              = 0x01
+	proutRelease              = 0x02
+	proutPreempt              = 0x04
+	proutPreemptAndAbort      = 0x05
 	proutRegisterAndIgnoreKey = 0x06
 )
 
@@ -217,7 +217,7 @@ func Preempt(device string, ourKey, victimKey RegistrationKey) error {
 	defer close()
 
 	param := make([]byte, 24)
-	copy(param[0:8], ourKey[:])   // reservation key = our key
+	copy(param[0:8], ourKey[:])     // reservation key = our key
 	copy(param[8:16], victimKey[:]) // service action reservation key = victim's key
 
 	// PREEMPT with same type = WRITE EXCLUSIVE, REGISTRANTS ONLY (0x05)

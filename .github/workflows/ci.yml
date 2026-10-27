@@ -130,6 +130,18 @@ jobs:
           sudo apt-get install -y gcc libc6-dev postgresql-client-15 gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
             zfsutils-linux libzfslinux-dev pkg-config
 
+      - name: Format and vet
+        working-directory: daemon
+        run: |
+          # Every Go file as gofmt writes it (58 had drifted before this check).
+          unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '^vendor/'))
+          if [ -n "$unformatted" ]; then
+            echo "Not gofmt-formatted (run gofmt -w on them):"
+            echo "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+
       - name: Run Go Tests
         working-directory: daemon
         env:

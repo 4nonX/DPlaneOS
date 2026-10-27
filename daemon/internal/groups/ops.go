@@ -200,7 +200,8 @@ type Manager struct {
 	uncached    map[string]bool
 	sharedList  *string           // the shared pool list last written (nil: not yet)
 	addrApplied map[string]string // group → "iface|cidr" put on this node
-	moving      map[string]bool   // planned moves in progress: activation leaves these alone
+	moving      map[string]bool   // owner changes (moves, takeovers) in progress: activation leaves these alone
+	lastPools   map[string]string // the last pool listing that succeeded (statuses during an import)
 	peerMaint   map[string]bool   // members' maintenance mode, as last reported
 }
 
@@ -228,19 +229,68 @@ func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func
 	return &Manager{db: db, ops: ops, repl: DefaultReplOps, split: DefaultSplitOps, res: DefaultResOps, addr: DefaultAddrOps, tr: tr, self: self, view: view}
 }
 
-func (m *Manager) currentView() (View, error) {
-	v := m.view()
-	v.Self = m.self()
+// importedPools lists the pools imported here and keeps the listing for
+// statusView.
+func (m *Manager) importedPools() (map[string]string, error) {
 	imported, err := m.ops.ImportedPools()
 	if err != nil {
+		return nil, err
+	}
+	last := make(map[string]string, len(imported))
+	for k, v := range imported {
+		last[k] = v
+	}
+	m.fmu.Lock()
+	m.lastPools = last
+	m.fmu.Unlock()
+	return imported, nil
+}
+
+func (m *Manager) currentView() (View, error) {
+	imported, err := m.importedPools()
+	if err != nil {
+		v := m.view()
+		v.Self = m.self()
 		return v, err
 	}
+	return m.viewWith(imported), nil
+}
+
+// statusView is currentView for showing the statuses. While this node
+// imports pools for an owner change, `zpool list` waits for the import
+// (with multihost over half a minute) and times out: the statuses then use
+// the last listing, which the import is about to change only for the
+// changing group. Decisions never use it: they change nothing when the
+// listing fails.
+func (m *Manager) statusView() (View, error) {
+	v, err := m.currentView()
+	if err == nil {
+		return v, nil
+	}
+	m.fmu.Lock()
+	last, changing := m.lastPools, len(m.moving) > 0
+	m.fmu.Unlock()
+	if !changing || last == nil {
+		return v, err
+	}
+	return m.viewWith(last), nil
+}
+
+func (m *Manager) viewWith(imported map[string]string) View {
+	v := m.view()
+	v.Self = m.self()
 	v.ImportedHere = map[string]bool{}
 	for name := range imported {
 		v.ImportedHere[name] = true
 	}
 	v.Maintenance = m.Maintenances()
-	return v, nil
+	m.fmu.Lock()
+	v.Changing = make(map[string]bool, len(m.moving))
+	for name := range m.moving {
+		v.Changing[name] = true
+	}
+	m.fmu.Unlock()
+	return v
 }
 
 // GroupStatus is a group with this node's evaluation.
@@ -260,7 +310,7 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := m.currentView()
+	v, err := m.statusView()
 	if err != nil {
 		return nil, err
 	}
@@ -310,6 +360,9 @@ func (m *Manager) CanWritePool(pool string) (bool, string) {
 	if st.CanWrite {
 		return true, ""
 	}
+	if st.Changing {
+		return false, fmt.Sprintf("pool %s belongs to group %s, whose owner is changing", pool, g.Name)
+	}
 	if st.Role != RoleOwner {
 		return false, fmt.Sprintf("pool %s belongs to group %s, owned by another node (epoch %d)", pool, g.Name, g.Epoch)
 	}
@@ -352,7 +405,7 @@ func (m *Manager) CreateWith(name, topology string, pools []string, candidates [
 	if _, err := Get(m.db, name); err == nil {
 		return nil, fmt.Errorf("group %s exists", name)
 	}
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +507,9 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	var exported []PoolRef
 	for _, p := range g.Pools {
 		if err := m.ops.Export(p.Name); err != nil {
-			m.reimport(exported)
+			if rerr := m.reimport(exported); rerr != nil {
+				return nil, fmt.Errorf("exporting %s: %w; re-importing the pools exported before failed: %v. The group stays here: import them here again", p.Name, err, rerr)
+			}
 			return nil, fmt.Errorf("exporting %s: %w (the group stays here)", p.Name, err)
 		}
 		exported = append(exported, p)
@@ -464,7 +519,7 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	ng.Owner, ng.Epoch, ng.UpdatedAt, ng.UpdatedBy = target, g.Epoch+1, time.Now(), self
 	if err := m.tr.Push(target, Update{Group: ng}); err != nil {
 		if rerr := m.reimport(exported); rerr != nil {
-			return nil, fmt.Errorf("the target did not take over (%v) and re-importing here failed: %v. The pools are imported nowhere: import them on one node", err, rerr)
+			return nil, fmt.Errorf("the target did not take over (%v) and re-importing here failed: %v. Check on each node which of the group's pools are imported (zpool list) and import each on one node only", err, rerr)
 		}
 		return nil, fmt.Errorf("the target did not take over: %w (the group stays here)", err)
 	}
@@ -477,6 +532,19 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	}
 	log.Printf("GROUPS: %s moved to %s (epoch %d)", name, target, ng.Epoch)
 	return res, nil
+}
+
+// giveBack exports the pools imported for an owner change that did not
+// happen. A pool it cannot export stays imported there, and the error says
+// so: the other node must not import it believing it free.
+func (m *Manager) giveBack(pools []PoolRef, where string) error {
+	var errs []error
+	for _, p := range pools {
+		if err := m.ops.Export(p.Name); err != nil {
+			errs = append(errs, fmt.Errorf("pool %s stays imported on %s (exporting it failed: %v): export it there before importing it anywhere else", p.Name, where, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (m *Manager) reimport(pools []PoolRef) error {
@@ -525,7 +593,7 @@ func (m *Manager) adopt(g Group) error {
 	if err := g.Validate(); err != nil {
 		return err
 	}
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return err
 	}
@@ -539,23 +607,22 @@ func (m *Manager) adopt(g Group) error {
 			log.Printf("GROUPS: %s: stopping resources: %v", g.Name, err)
 		}
 	}
-	if g.Owner == m.self() && (cur == nil || cur.Owner != m.self()) {
-		// Becoming the owner: write the group's published stacks and exports
-		// here, then start them (after the pools below are imported/writable).
-		defer func() {
-			if err := m.materialize(g); err != nil {
-				log.Printf("GROUPS: %s: %v", g.Name, err)
-			}
-			go m.ActivateTick()
-		}()
+	becoming := g.Owner == m.self() && (cur == nil || cur.Owner != m.self())
+	if becoming {
+		// Until the new owner is stored the pools are imported here while the
+		// stored owner is another node.
+		m.setMoving(g.Name, true)
+		defer m.setMoving(g.Name, false)
 	}
 	imports, exports := planAdopt(g, m.self(), imported)
 	// Planned move to this node: import first; refuse (no state change) if
 	// that fails, so the sender takes the pools back.
+	var done []PoolRef
 	for _, p := range imports {
 		if err := m.ops.Import(p.GUID); err != nil {
-			return fmt.Errorf("importing %s: %w", p.Name, err)
+			return errors.Join(fmt.Errorf("importing %s: %w", p.Name, err), m.giveBack(done, "the target"))
 		}
+		done = append(done, p)
 	}
 	// Stale owner: give the shared pools up.
 	var errs []error
@@ -577,7 +644,16 @@ func (m *Manager) adopt(g Group) error {
 		}
 	}
 	if err := put(m.db, g); err != nil {
-		return err
+		return errors.Join(err, m.giveBack(done, "the target")) // refused: the sender takes them back
+	}
+	if becoming {
+		// Write the group's published stacks and exports here, then start
+		// them (the pools are imported or writable now).
+		m.setMoving(g.Name, false)
+		if err := m.materialize(g); err != nil {
+			log.Printf("GROUPS: %s: %v", g.Name, err)
+		}
+		go m.ActivateTick()
 	}
 	return errors.Join(errs...)
 }
@@ -682,7 +758,7 @@ func (m *Manager) SyncOnce() error {
 // ImportedPoolNames lists the pools imported on this node (reported to the
 // other members so an owner knows nobody else uses its pools).
 func (m *Manager) ImportedPoolNames() ([]string, error) {
-	imported, err := m.ops.ImportedPools()
+	imported, err := m.importedPools()
 	if err != nil {
 		return nil, err
 	}

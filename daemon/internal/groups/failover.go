@@ -194,7 +194,11 @@ func (m *Manager) takeover(name, why string) error {
 		return err
 	}
 	self := m.self()
-	imported, err := m.ops.ImportedPools()
+	// Until the new owner is stored the pools come in here while the stored
+	// owner is the old one: the status shows the change, not a problem.
+	m.setMoving(name, true)
+	defer m.setMoving(name, false)
+	imported, err := m.importedPools()
 	if err != nil {
 		return err
 	}
@@ -216,6 +220,7 @@ func (m *Manager) takeover(name, why string) error {
 			return err
 		}
 		log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+		m.setMoving(name, false) // stored: the activation below may start it
 		if err := m.materialize(ng); err != nil {
 			log.Printf("GROUPS: %s: %v", name, err)
 		}
@@ -231,10 +236,8 @@ func (m *Manager) takeover(name, why string) error {
 			continue
 		}
 		if err := m.ops.ImportForce(p.GUID); err != nil {
-			for _, d := range done {
-				_ = m.ops.Export(d.Name)
-			}
-			return fmt.Errorf("importing %s: %w (if the old owner is still running, ZFS multihost refuses the import: that is the protection working)", p.Name, err)
+			return errors.Join(fmt.Errorf("importing %s: %w (if the old owner is still running, ZFS multihost refuses the import: that is the protection working)", p.Name, err),
+				m.giveBack(done, "this node"))
 		}
 		done = append(done, p)
 	}
@@ -244,6 +247,7 @@ func (m *Manager) takeover(name, why string) error {
 		return err
 	}
 	log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+	m.setMoving(name, false) // stored: the activation below may start it
 	if err := m.materialize(ng); err != nil {
 		log.Printf("GROUPS: %s: %v", name, err)
 	}

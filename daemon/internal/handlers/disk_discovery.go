@@ -541,12 +541,12 @@ type poolCreateVdev struct {
 
 // poolCreateHTTPBody is the JSON body for POST /api/system/pool/create.
 type poolCreateHTTPBody struct {
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`   // wizard: Single, Mirror, RAID-Z1, …
-	Layout   string            `json:"layout"` // pools UI: stripe, mirror, raidz1, …
-	Disks    []string          `json:"disks"`
-	Ashift   int               `json:"ashift"`
-	Options  map[string]string `json:"options"`
+	Name     string              `json:"name"`
+	Type     string              `json:"type"`   // wizard: Single, Mirror, RAID-Z1, …
+	Layout   string              `json:"layout"` // pools UI: stripe, mirror, raidz1, …
+	Disks    []string            `json:"disks"`
+	Ashift   int                 `json:"ashift"`
+	Options  map[string]string   `json:"options"`
 	Topology *poolCreateTopology `json:"topology"`
 }
 
@@ -809,4 +809,3 @@ func resolveAndValidateDiskPaths(paths []string) ([]string, error) {
 	}
 	return resolved, nil
 }
-

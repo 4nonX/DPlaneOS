@@ -37,6 +37,3 @@ func executeBackgroundCommand(path string, args []string) (string, error) {
 	ioniceArgs = append(ioniceArgs, args...)
 	return executeCommand("ionice", ioniceArgs)
 }
-
-
-

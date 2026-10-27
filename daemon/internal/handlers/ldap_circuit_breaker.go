@@ -22,14 +22,14 @@ const (
 
 // LDAPCircuitBreaker protects against slow/dead LDAP servers
 type LDAPCircuitBreaker struct {
-	mu              sync.RWMutex
-	state           CircuitState
-	failures        int
-	lastFailure     time.Time
-	lastSuccess     time.Time
-	maxFailures     int           // trips to Open after this many failures
-	resetTimeout    time.Duration // time before trying again (half-open)
-	requestTimeout  time.Duration // max time to wait for LDAP response
+	mu             sync.RWMutex
+	state          CircuitState
+	failures       int
+	lastFailure    time.Time
+	lastSuccess    time.Time
+	maxFailures    int           // trips to Open after this many failures
+	resetTimeout   time.Duration // time before trying again (half-open)
+	requestTimeout time.Duration // max time to wait for LDAP response
 }
 
 // CachedCredential stores a hashed credential for degraded-mode auth

@@ -18,9 +18,9 @@ type fencedRequest struct {
 
 // fencedResponse is the wire type returned by dplane-fenced.
 type fencedResponse struct {
-	OK    bool        `json:"ok"`
-	Error string      `json:"error,omitempty"`
-	Data  any `json:"data,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	Data  any    `json:"data,omitempty"`
 }
 
 // fencedCall sends one command to dplane-fenced and returns the response.

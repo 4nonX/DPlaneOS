@@ -72,7 +72,8 @@ func GenerateReplicationKey(w http.ResponseWriter, r *http.Request) {
 // GetReplicationPubKey returns the current replication public key.
 // GET /api/replication/ssh-pubkey
 // Response: { "success": true, "exists": true, "public_key": "ssh-ed25519 ..." }
-//            { "success": true, "exists": false }
+//
+//	{ "success": true, "exists": false }
 func GetReplicationPubKey(w http.ResponseWriter, r *http.Request) {
 	pubKey, err := os.ReadFile(replPubPath)
 	if err != nil {
@@ -102,4 +103,3 @@ func replHostname() string {
 	}
 	return h
 }
-

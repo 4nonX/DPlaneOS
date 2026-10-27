@@ -1,8 +1,8 @@
 package hardware
 
 import (
-	"errors"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 

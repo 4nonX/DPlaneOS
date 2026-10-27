@@ -155,4 +155,3 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 
 	respondOK(w, result)
 }
-

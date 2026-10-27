@@ -34,9 +34,9 @@ type DirectoryCache struct {
 
 // cacheSnapshot is the on-disk format for persistent cache storage.
 type cacheSnapshot struct {
-	Users       []*User            `json:"users"`
+	Users       []*User             `json:"users"`
 	Groups      map[string][]string `json:"groups"`
-	RefreshedAt time.Time          `json:"refreshed_at"`
+	RefreshedAt time.Time           `json:"refreshed_at"`
 }
 
 // NewDirectoryCache creates a cache with the given TTL. Call Start() to begin

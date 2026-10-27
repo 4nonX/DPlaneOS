@@ -74,7 +74,7 @@ func (h *TerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Request)
 	defer func() {
 		ptmx.Close()
 		cmd.Process.Kill() //nolint:errcheck
-		cmd.Wait()          //nolint:errcheck
+		cmd.Wait()         //nolint:errcheck
 	}()
 
 	// PTY → WebSocket (output)
@@ -130,4 +130,3 @@ func sendTermMsg(conn *websocket.Conn, msgType, data string) {
 	msg, _ := json.Marshal(termMsg{Type: msgType, Data: data})
 	conn.WriteMessage(websocket.TextMessage, msg) //nolint:errcheck
 }
-

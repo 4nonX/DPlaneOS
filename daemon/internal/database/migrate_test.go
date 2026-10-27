@@ -80,7 +80,7 @@ func TestMigration00024WithDuplicates(t *testing.T) {
 	}
 }
 
-// Databases from before 16.0.2 hold tables that no migration creates any
+// Databases from before 16.0 hold tables that no migration creates any
 // more; 00033 and 00035 drop them, and nothing else.
 func TestMigrationsDropRemovedTables(t *testing.T) {
 	db := testSchemaDB(t)

@@ -36,9 +36,9 @@ const (
 
 // Job holds state for one background operation.
 type Job struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Status   string `json:"status"`
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
 	// Credentials carries the identity of the user or API token that initiated the job.
 	// The job goroutine can inspect these to enforce per-operation authorization checks
 	// without needing to thread a request context through the call stack.
@@ -47,8 +47,8 @@ type Job struct {
 	Role     string `json:"role,omitempty"`
 
 	Result map[string]any `json:"result,omitempty"`
-	Error  string                 `json:"error,omitempty"`
-	Logs   []string               `json:"logs,omitempty"` // streaming progress lines
+	Error  string         `json:"error,omitempty"`
+	Logs   []string       `json:"logs,omitempty"` // streaming progress lines
 	// LatestProgress is the most recent structured progress (e.g. zfs send -P).
 	// Copied into JobSnapshot.Progress for GET /api/jobs/{id} (poll without WebSocket).
 	LatestProgress map[string]any
@@ -157,18 +157,18 @@ func (j *Job) Fail(errMsg string) {
 
 // JobSnapshot is a mutex-free copy of Job fields, safe to marshal directly.
 type JobSnapshot struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Status     string                 `json:"status"`
-	UserID     int64                  `json:"user_id,omitempty"`
-	Username   string                 `json:"username,omitempty"`
-	Role       string                 `json:"role,omitempty"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Status     string         `json:"status"`
+	UserID     int64          `json:"user_id,omitempty"`
+	Username   string         `json:"username,omitempty"`
+	Role       string         `json:"role,omitempty"`
 	Result     map[string]any `json:"result,omitempty"`
-	Error      string                 `json:"error,omitempty"`
-	Logs       []string               `json:"logs,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	Logs       []string       `json:"logs,omitempty"`
 	Progress   map[string]any `json:"progress,omitempty"`
-	StartedAt  time.Time              `json:"started_at"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	StartedAt  time.Time      `json:"started_at"`
+	FinishedAt *time.Time     `json:"finished_at,omitempty"`
 }
 
 // Snapshot returns a mutex-free copy of the job safe to marshal without holding the lock.

@@ -74,6 +74,22 @@ func TestEvaluate(t *testing.T) {
 	if len(st.Release) != 0 || len(st.Problems) != 0 {
 		t.Errorf("replicated standby: %+v", st)
 	}
+	// Taking over: the pool is in, the new owner not stored yet.
+	changing := map[string]bool{"data": true}
+	st = Evaluate(g, View{Self: "b", Quorum: true, Quorate: true, ImportedHere: map[string]bool{"tank": true}, Changing: changing})
+	if !st.Changing || st.CanWrite || len(st.Release) != 0 || len(st.Problems) != 0 {
+		t.Errorf("standby taking over: %+v", st)
+	}
+	// Moving away: the pool is out, the new owner not stored yet.
+	st = Evaluate(g, View{Self: "a", Quorum: true, Quorate: true, ImportedHere: map[string]bool{}, Changing: changing})
+	if !st.Changing || st.CanWrite || len(st.Problems) != 0 {
+		t.Errorf("owner moving away: %+v", st)
+	}
+	// Losing quorum is still a problem while the owner changes.
+	st = Evaluate(g, View{Self: "a", Quorum: true, Quorate: false, ImportedHere: map[string]bool{"tank": true}, Changing: changing})
+	if st.CanWrite || len(st.Problems) != 1 {
+		t.Errorf("owner moving away without quorum: %+v", st)
+	}
 }
 
 func TestPlanAdopt(t *testing.T) {

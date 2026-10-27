@@ -44,8 +44,8 @@ func TestValidateAgainstReport_NVIDIAFail(t *testing.T) {
     runtime: nvidia
 `
 	rep := &hardware.GPUPassthroughReport{
-		NVIDIADriverOK:         false,
-		NVIDIARuntimeAvailable: false,
+		NVIDIADriverOK:          false,
+		NVIDIARuntimeAvailable:  false,
 		NixOSDockerNvidiaOption: "services.dplaneos.docker.enableNvidia",
 	}
 	if err := ValidateAgainstReport(y, rep); err == nil {
