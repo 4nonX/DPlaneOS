@@ -2,6 +2,7 @@ package groups
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"dplaned/internal/nvmet"
@@ -111,5 +112,38 @@ func TestRefusedMoveLeavesNothingHere(t *testing.T) {
 	}
 	if st := status(t, m, "data"); st.Changing {
 		t.Errorf("still marked as changing: %+v", st.Status)
+	}
+}
+
+// A pool the refused target cannot give back is named in the refusal, so the
+// sender does not report it free while the target still holds it.
+func TestRefusedMoveNamesAPoolItCannotGiveBack(t *testing.T) {
+	db := groupsTestDB(t)
+	tr := &fakeTransport{members: []string{"ka", "kb"}}
+	m, imported := maintenanceManager(t, db, tr, []string{"ka", "kb"})
+	delete(imported, "tank")
+	delete(imported, "scratch")
+	g := Group{Name: "data", Topology: Shared, Pools: []PoolRef{{Name: "tank", GUID: "11"}, {Name: "scratch", GUID: "22"}},
+		Candidates: []string{"ka", "kb"}, Owner: "kb", Epoch: 1, Version: 1}
+	if err := put(db, g); err != nil {
+		t.Fatal(err)
+	}
+	m.ops.Import = func(guid string) error {
+		if guid == "22" {
+			return errors.New("pool in use elsewhere")
+		}
+		imported["tank"] = "11"
+		return nil
+	}
+	m.ops.Export = func(string) error { return errors.New("pool is busy") }
+
+	moved := g
+	moved.Owner, moved.Epoch = "ka", 2
+	err := m.Receive(Update{Group: moved})
+	if err == nil || !strings.Contains(err.Error(), "importing scratch") || !strings.Contains(err.Error(), "pool tank stays imported on the target") {
+		t.Fatalf("refusal: %v", err)
+	}
+	if st := status(t, m, "data"); len(st.Release) != 1 || st.Release[0] != "tank" {
+		t.Errorf("the pool left here must show as one to release: %+v", st.Status)
 	}
 }

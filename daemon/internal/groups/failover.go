@@ -236,10 +236,8 @@ func (m *Manager) takeover(name, why string) error {
 			continue
 		}
 		if err := m.ops.ImportForce(p.GUID); err != nil {
-			for _, d := range done {
-				_ = m.ops.Export(d.Name)
-			}
-			return fmt.Errorf("importing %s: %w (if the old owner is still running, ZFS multihost refuses the import: that is the protection working)", p.Name, err)
+			return errors.Join(fmt.Errorf("importing %s: %w (if the old owner is still running, ZFS multihost refuses the import: that is the protection working)", p.Name, err),
+				m.giveBack(done, "this node"))
 		}
 		done = append(done, p)
 	}

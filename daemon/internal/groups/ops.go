@@ -493,7 +493,9 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	var exported []PoolRef
 	for _, p := range g.Pools {
 		if err := m.ops.Export(p.Name); err != nil {
-			m.reimport(exported)
+			if rerr := m.reimport(exported); rerr != nil {
+				return nil, fmt.Errorf("exporting %s: %w; re-importing the pools exported before failed: %v. The group stays here: import them here again", p.Name, err, rerr)
+			}
 			return nil, fmt.Errorf("exporting %s: %w (the group stays here)", p.Name, err)
 		}
 		exported = append(exported, p)
@@ -503,7 +505,7 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	ng.Owner, ng.Epoch, ng.UpdatedAt, ng.UpdatedBy = target, g.Epoch+1, time.Now(), self
 	if err := m.tr.Push(target, Update{Group: ng}); err != nil {
 		if rerr := m.reimport(exported); rerr != nil {
-			return nil, fmt.Errorf("the target did not take over (%v) and re-importing here failed: %v. The pools are imported nowhere: import them on one node", err, rerr)
+			return nil, fmt.Errorf("the target did not take over (%v) and re-importing here failed: %v. Check on each node which of the group's pools are imported (zpool list) and import each on one node only", err, rerr)
 		}
 		return nil, fmt.Errorf("the target did not take over: %w (the group stays here)", err)
 	}
@@ -516,6 +518,19 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	}
 	log.Printf("GROUPS: %s moved to %s (epoch %d)", name, target, ng.Epoch)
 	return res, nil
+}
+
+// giveBack exports the pools imported for an owner change that did not
+// happen. A pool it cannot export stays imported there, and the error says
+// so: the other node must not import it believing it free.
+func (m *Manager) giveBack(pools []PoolRef, where string) error {
+	var errs []error
+	for _, p := range pools {
+		if err := m.ops.Export(p.Name); err != nil {
+			errs = append(errs, fmt.Errorf("pool %s stays imported on %s (exporting it failed: %v): export it there before importing it anywhere else", p.Name, where, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (m *Manager) reimport(pools []PoolRef) error {
@@ -591,10 +606,7 @@ func (m *Manager) adopt(g Group) error {
 	var done []PoolRef
 	for _, p := range imports {
 		if err := m.ops.Import(p.GUID); err != nil {
-			for _, d := range done {
-				_ = m.ops.Export(d.Name)
-			}
-			return fmt.Errorf("importing %s: %w", p.Name, err)
+			return errors.Join(fmt.Errorf("importing %s: %w", p.Name, err), m.giveBack(done, "the target"))
 		}
 		done = append(done, p)
 	}
@@ -618,10 +630,7 @@ func (m *Manager) adopt(g Group) error {
 		}
 	}
 	if err := put(m.db, g); err != nil {
-		for _, d := range done {
-			_ = m.ops.Export(d.Name) // refused: the sender takes them back
-		}
-		return err
+		return errors.Join(err, m.giveBack(done, "the target")) // refused: the sender takes them back
 	}
 	if becoming {
 		// Write the group's published stacks and exports here, then start
