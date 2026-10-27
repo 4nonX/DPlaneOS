@@ -26,6 +26,7 @@ interface GroupStatus {
   updated_at: string
   role: 'owner' | 'standby' | 'other'
   can_write: boolean
+  changing?: boolean // a move or takeover is importing or releasing the pools here
   problems: string[]
   failover: { action: 'none' | 'wait' | 'takeover' | ''; reason?: string; wait_until?: string }
   interval_secs: number
@@ -307,7 +308,8 @@ export function GroupsPanel() {
             <span className="badge badge-neutral">{TOPOLOGY[g.topology]?.label ?? g.topology}</span>
             <span style={{ fontSize: 'var(--text-sm)' }}>owner <strong>{nm(g.owner)}</strong>{g.owner === d.self ? ' (this node)' : ''}</span>
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>epoch {g.epoch} · pools {g.pools.map(p => p.name).join(', ')}</span>
-            {g.role === 'owner' && (g.can_write
+            {g.changing && <span className="badge badge-warning">Changing owner</span>}
+            {g.role === 'owner' && !g.changing && (g.can_write
               ? <span className="badge badge-success">Serving</span>
               : <span className="badge badge-error">Not serving</span>)}
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>

@@ -158,6 +158,10 @@ type View struct {
 	FenceReason        string        // why not
 	FenceDelay         time.Duration // wait after the owner left before taking over
 
+	// Changing are the groups whose owner is changing on this node (a move or
+	// takeover is importing or releasing their pools).
+	Changing map[string]bool
+
 	// Maintenance are the nodes in maintenance mode (this one included):
 	// never chosen to take a group over (phase 4).
 	Maintenance map[string]bool
@@ -166,9 +170,10 @@ type View struct {
 // Status is the evaluated state of a group on this node.
 type Status struct {
 	Role     Role     `json:"role"`
-	CanWrite bool     `json:"can_write"`         // may serve and write group data and configuration
-	Problems []string `json:"problems"`          // shown in the GUI
-	Release  []string `json:"release,omitempty"` // pools this node must export
+	CanWrite bool     `json:"can_write"`          // may serve and write group data and configuration
+	Problems []string `json:"problems"`           // shown in the GUI
+	Release  []string `json:"release,omitempty"`  // pools this node must export
+	Changing bool     `json:"changing,omitempty"` // the owner is changing: pools are being imported or released here
 }
 
 // Evaluate decides this node's role and what is wrong, without side effects.
@@ -178,6 +183,8 @@ type Status struct {
 //   - A node that is not the owner must not have the group's pools imported
 //     (shared storage): it releases them. On replicated groups the standby
 //     holds its copy imported (as replication target), which is expected.
+//   - While the owner is changing on this node its pools are on their way in
+//     or out: that is not a problem, and nobody writes until it is done.
 func Evaluate(g Group, v View) Status {
 	st := Status{Role: RoleOther, Problems: []string{}}
 	switch {
@@ -185,6 +192,13 @@ func Evaluate(g Group, v View) Status {
 		st.Role = RoleOwner
 	case g.IsCandidate(v.Self):
 		st.Role = RoleStandby
+	}
+	if v.Changing[g.Name] {
+		st.Changing = true
+		if st.Role == RoleOwner && v.Quorum && !v.Quorate {
+			st.Problems = append(st.Problems, "this node owns the group but has no quorum; it must not write")
+		}
+		return st
 	}
 	var missing []string
 	for _, p := range g.Pools {

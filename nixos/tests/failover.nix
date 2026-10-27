@@ -167,13 +167,20 @@ pkgs.testers.nixosTest {
         with subtest("a is reset (as by its watchdog); b takes over after the fencing delay"):
             a.crash()
             started = time.time()
-            wait_for(lambda: b.execute("zpool list tank")[0] == 0, "b imports the pool", ${toString (watchdogTimeout + 120)})
+
+            # Until the new owner is stored the pool is already visible on b:
+            # the status shows the change, never a problem.
+            def taken_over():
+                g = group(b)
+                assert not any("not the owner" in p for p in g["problems"]), g
+                return g["owner"] == peer_b and g
+            gb = wait_for(taken_over, "b takes the group over", ${toString (watchdogTimeout + 120)})
             took = time.time() - started
             print(f"takeover {took:.0f}s after the reset")
-            # The import returns before the datasets are mounted.
+            b.succeed("zpool list tank")
             b.wait_until_succeeds("grep -q hello /mnt/tank/data/file", timeout=60)
             gb = group(b)
-            assert gb["owner"] == peer_b and gb["epoch"] == 2 and gb["can_write"], gb
+            assert gb["owner"] == peer_b and gb["epoch"] == 2 and gb["can_write"] and not gb.get("changing"), gb
 
         with subtest("a boots again: cannot import the pool and follows the new epoch"):
             a.start()

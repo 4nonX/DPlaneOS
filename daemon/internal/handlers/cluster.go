@@ -66,7 +66,8 @@ type MapGroup struct {
 	Epoch        int64            `json:"epoch"`
 	Candidates   []string         `json:"candidates"`
 	Pools        []string         `json:"pools"`
-	Serving      bool             `json:"serving"` // the owner may write (known only on the owner)
+	Serving      bool             `json:"serving"`            // the owner may write (known only on the owner)
+	Changing     bool             `json:"changing,omitempty"` // the owner is changing on this node
 	Problems     []string         `json:"problems"`
 	Failover     string           `json:"failover,omitempty"`
 	IntervalSecs int              `json:"interval_secs,omitempty"`
@@ -156,7 +157,7 @@ func buildMap(self, selfName string, sync *configstore.SyncStatus, cfg *quorum.C
 
 	for _, g := range gs {
 		mg := MapGroup{Name: g.Name, Topology: g.Topology, Owner: g.Owner, Epoch: g.Epoch, Candidates: g.Candidates,
-			Serving: g.Role == groups.RoleOwner && g.CanWrite, Problems: g.Problems, Failover: g.Failover.Reason}
+			Serving: g.Role == groups.RoleOwner && g.CanWrite, Changing: g.Changing, Problems: g.Problems, Failover: g.Failover.Reason}
 		if mg.Problems == nil {
 			mg.Problems = []string{}
 		}

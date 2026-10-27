@@ -28,7 +28,7 @@ export interface MapNode {
 interface MapReplication { pool: string; target: string; last_ok_at: string | null; lag_secs: number; error?: string }
 export interface MapGroup {
   name: string; topology: 'standalone' | 'shared' | 'replicated'; owner: string; epoch: number; candidates: string[]
-  pools: string[]; serving: boolean; problems: string[]; failover?: string; interval_secs?: number; replication?: MapReplication[]
+  pools: string[]; serving: boolean; changing?: boolean; problems: string[]; failover?: string; interval_secs?: number; replication?: MapReplication[]
 }
 export interface ClusterMap {
   self: string; mode: 'standalone' | 'connected' | 'isolated' | 'independent'; mode_since?: string
@@ -149,7 +149,9 @@ function GroupMatrix({ m }: { m: ClusterMap }) {
                     })}
               </td>
               <td>
-                {g.owner === m.self
+                {g.changing
+                  ? <span className="badge badge-warning">Changing owner</span>
+                  : g.owner === m.self
                   ? (g.serving ? <span className="badge badge-success">Serving</span> : <span className="badge badge-error">Not serving</span>)
                   : <span style={{ color: 'var(--text-tertiary)' }}>on {name(g.owner)}</span>}
                 {g.problems.length > 0 && <div style={{ color: 'var(--error)', fontSize: 'var(--text-xs)', maxWidth: 280 }}>{g.problems.join('; ')}</div>}

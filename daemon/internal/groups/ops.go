@@ -200,7 +200,7 @@ type Manager struct {
 	uncached    map[string]bool
 	sharedList  *string           // the shared pool list last written (nil: not yet)
 	addrApplied map[string]string // group → "iface|cidr" put on this node
-	moving      map[string]bool   // planned moves in progress: activation leaves these alone
+	moving      map[string]bool   // owner changes (moves, takeovers) in progress: activation leaves these alone
 	peerMaint   map[string]bool   // members' maintenance mode, as last reported
 }
 
@@ -240,6 +240,12 @@ func (m *Manager) currentView() (View, error) {
 		v.ImportedHere[name] = true
 	}
 	v.Maintenance = m.Maintenances()
+	m.fmu.Lock()
+	v.Changing = make(map[string]bool, len(m.moving))
+	for name := range m.moving {
+		v.Changing[name] = true
+	}
+	m.fmu.Unlock()
 	return v, nil
 }
 
@@ -309,6 +315,9 @@ func (m *Manager) CanWritePool(pool string) (bool, string) {
 	st := Evaluate(*g, v)
 	if st.CanWrite {
 		return true, ""
+	}
+	if st.Changing {
+		return false, fmt.Sprintf("pool %s belongs to group %s, whose owner is changing", pool, g.Name)
 	}
 	if st.Role != RoleOwner {
 		return false, fmt.Sprintf("pool %s belongs to group %s, owned by another node (epoch %d)", pool, g.Name, g.Epoch)
@@ -539,23 +548,25 @@ func (m *Manager) adopt(g Group) error {
 			log.Printf("GROUPS: %s: stopping resources: %v", g.Name, err)
 		}
 	}
-	if g.Owner == m.self() && (cur == nil || cur.Owner != m.self()) {
-		// Becoming the owner: write the group's published stacks and exports
-		// here, then start them (after the pools below are imported/writable).
-		defer func() {
-			if err := m.materialize(g); err != nil {
-				log.Printf("GROUPS: %s: %v", g.Name, err)
-			}
-			go m.ActivateTick()
-		}()
+	becoming := g.Owner == m.self() && (cur == nil || cur.Owner != m.self())
+	if becoming {
+		// Until the new owner is stored the pools are imported here while the
+		// stored owner is another node.
+		m.setMoving(g.Name, true)
+		defer m.setMoving(g.Name, false)
 	}
 	imports, exports := planAdopt(g, m.self(), imported)
 	// Planned move to this node: import first; refuse (no state change) if
 	// that fails, so the sender takes the pools back.
+	var done []PoolRef
 	for _, p := range imports {
 		if err := m.ops.Import(p.GUID); err != nil {
+			for _, d := range done {
+				_ = m.ops.Export(d.Name)
+			}
 			return fmt.Errorf("importing %s: %w", p.Name, err)
 		}
+		done = append(done, p)
 	}
 	// Stale owner: give the shared pools up.
 	var errs []error
@@ -577,7 +588,19 @@ func (m *Manager) adopt(g Group) error {
 		}
 	}
 	if err := put(m.db, g); err != nil {
+		for _, d := range done {
+			_ = m.ops.Export(d.Name) // refused: the sender takes them back
+		}
 		return err
+	}
+	if becoming {
+		// Write the group's published stacks and exports here, then start
+		// them (the pools are imported or writable now).
+		m.setMoving(g.Name, false)
+		if err := m.materialize(g); err != nil {
+			log.Printf("GROUPS: %s: %v", g.Name, err)
+		}
+		go m.ActivateTick()
 	}
 	return errors.Join(errs...)
 }
