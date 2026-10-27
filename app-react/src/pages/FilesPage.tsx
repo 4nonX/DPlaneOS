@@ -21,7 +21,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, ensureOk, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, ensureOk, sessionFetch } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -354,12 +354,7 @@ function UploadPanel({ currentPath, onDone }: { currentPath: string; onDone: () 
       fd.append('chunk', String(i))
       fd.append('totalChunks', String(totalChunks))
 
-      const headers: Record<string,string> = {}
-      const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
-      const usr = getUsername(); if (usr) headers['X-User'] = usr
-      headers['X-CSRF-Token'] = getCsrfToken()
-
-      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: fd })
+      const res = await sessionFetch('/api/files/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (!data.success) throw new Error(data.error || 'Chunk upload failed')
       setProgress(p => ({ ...p, [file.name]: Math.round((end / file.size) * 100) }))
@@ -589,19 +584,16 @@ function FileBrowser() {
 
   // -- Download -------------------------------------------------------------
   function downloadFile(entry: FileEntry) {
-    const sid = getSessionId()
-    const usr = getUsername()
-    const csrf = getCsrfToken()
     const url = `/api/files/download?path=${encodeURIComponent(entry.path)}`
     // Create a hidden <a> with auth headers via a fetch + blob approach
-    fetch(url, {
-      headers: {
-        'X-Session-ID': sid ?? '',
-        'X-User': usr ?? '',
-        'X-CSRF-Token': csrf,
-      }
-    })
-      .then(r => r.blob())
+    sessionFetch(url)
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          throw new Error(body.error ?? `HTTP ${r.status}`)
+        }
+        return r.blob()
+      })
       .then(blob => {
         const a = document.createElement('a')
         a.href = URL.createObjectURL(blob)
@@ -609,7 +601,7 @@ function FileBrowser() {
         a.click()
         URL.revokeObjectURL(a.href)
       })
-      .catch(() => toast.error('Download failed'))
+      .catch((e: Error) => toast.error(`Download failed: ${e.message}`))
   }
 
   // -- Drag-and-drop upload --------------------------------------------------
@@ -638,11 +630,7 @@ function FileBrowser() {
           fd.append('path', path)
           fd.append('chunk', String(i))
           fd.append('totalChunks', String(totalChunks))
-          const headers: Record<string, string> = {}
-          const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
-          const usr = getUsername(); if (usr) headers['X-User'] = usr
-          headers['X-CSRF-Token'] = getCsrfToken()
-          const res = await fetch('/api/files/upload', { method: 'POST', headers, body: fd })
+          const res = await sessionFetch('/api/files/upload', { method: 'POST', body: fd })
           const data = await res.json()
           if (!data.success) throw new Error(data.error ?? 'Upload failed')
         }

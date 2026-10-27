@@ -10,7 +10,7 @@ import (
 // The bootstrap creates the checker without a hardware profile; this panicked
 // at daemon start (nil dereference in InitializeDefaultChecks).
 func TestInitializeDefaultChecksWithoutProfile(t *testing.T) {
-	c := NewChecker(nil, resilience.NewPool(), nil, nil)
+	c := NewChecker(nil, resilience.NewPool(), nil)
 	c.InitializeDefaultChecks()
 	for _, name := range []string{"resources", "zfs", "docker", "postgres", "network"} {
 		if _, ok := c.checks[name]; !ok {

@@ -237,3 +237,83 @@ func TestCurrentMarksChangesNotPulledYet(t *testing.T) {
 		t.Fatalf("after pull: %+v", items[0])
 	}
 }
+
+// mergeFromPeer records, as received from the peer, the resolution the peer
+// made of the conflict between its revision remote and this node's local.
+func mergeFromPeer(t *testing.T, db *sql.DB, local, remote Revision) Revision {
+	t.Helper()
+	m := Revision{UID: "00000000-0000-4000-8000-000000000002", BaseUID: remote.UID, MergeUID: local.UID,
+		Scope: remote.Scope, ScopeID: remote.ScopeID, Kind: remote.Kind, Key: remote.Key, Payload: remote.Payload,
+		Origin: OriginMerge, Epoch: remote.Epoch}
+	raw, _ := json.Marshal(m.Payload)
+	if _, err := db.Exec(`INSERT INTO config_peer_revisions (uid, base_uid, merge_uid, peer_id, peer_rev_id, scope_type, scope_id,
+		resource_kind, resource_key, payload, origin, created_at, epoch)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 'kb', 2, $4, $5, $6, $7, $8, $9, NOW(), $10)`,
+		m.UID, m.BaseUID, m.MergeUID, m.Scope, m.ScopeID, m.Kind, m.Key, raw, m.Origin, m.Epoch); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// The winning node settled the conflict before this node saw it: this node
+// receives the resolution, not the conflict, and still keeps its change.
+func TestOverruledByPeersResolutionKeepsProposal(t *testing.T) {
+	db := storeTestDB(t)
+	local, remote := conflictPair(t, db, 3, 4)
+	m := mergeFromPeer(t, db, local, remote)
+	anc, err := loadAncestry(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := Classify(&local, &m, anc); a != MergeFastForward {
+		t.Fatalf("the resolution must fast-forward this node, got %v", a)
+	}
+	s := &Syncer{db: db}
+	for range 2 { // seen again next round: still one proposal
+		if err := s.keepIfOverruled(peerB, local, m, anc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ps, err := Proposals(db)
+	if err != nil || len(ps) != 1 {
+		t.Fatalf("proposals: %v %+v", err, ps)
+	}
+	if p := ps[0]; p.SourceUID != local.UID || p.WinnerUID != remote.UID || p.Payload["quota"] != "1T" || p.Reason == "" {
+		t.Errorf("proposal: %+v", p)
+	}
+}
+
+// A resolution in favour of the version the rule does not pick was the
+// operator's decision on the other node; this node's change won the rule,
+// so there is nothing to keep, and under the review policy neither.
+func TestResolutionWithoutRuleVerdictKeepsNoProposal(t *testing.T) {
+	db := storeTestDB(t)
+	local, remote := conflictPair(t, db, 4, 3)
+	m := mergeFromPeer(t, db, local, remote)
+	anc, err := loadAncestry(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Syncer{db: db}
+	if err := s.keepIfOverruled(peerB, local, m, anc); err != nil {
+		t.Fatal(err)
+	}
+	if ps, _ := Proposals(db); len(ps) != 0 {
+		t.Fatalf("proposals: %+v", ps)
+	}
+	db2 := storeTestDB(t)
+	if err := SetPolicy(db2, ScopeGroup, PolicyReview); err != nil {
+		t.Fatal(err)
+	}
+	local, remote = conflictPair(t, db2, 3, 4)
+	m = mergeFromPeer(t, db2, local, remote)
+	if anc, err = loadAncestry(db2); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Syncer{db: db2}).keepIfOverruled(peerB, local, m, anc); err != nil {
+		t.Fatal(err)
+	}
+	if ps, _ := Proposals(db2); len(ps) != 0 {
+		t.Fatalf("review policy: %+v", ps)
+	}
+}

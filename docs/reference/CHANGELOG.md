@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## v16.0.2 (2026-10-26) - "Bedrock"
+
+### Security
+
+- **The daemon was built with Go 1.26.5,** which has 17 standard library vulnerabilities the daemon reaches, among them HTTP/2 server crashes and memory exhaustion (GO-2026-6617, GO-2026-6603), HTTP/1 connection desynchronization (GO-2026-6613), unlimited Range headers (GO-2026-6609) and the trust of compromised intermediate certificates (GO-2026-6809). The flake builds the daemon with the Go of its nixpkgs; CI scanned the source with the newer Go of `daemon/go.mod` instead and never saw them, and it let one vulnerability through as long as the count matched a "known" one that was fixed long ago. The daemon is now built with Go 1.26.10, which fixes all of them. CI checks that the flake builds with the Go of `daemon/go.mod` and fails on any vulnerability the code reaches.
+- **The operating system was three months behind on security fixes:** the nixpkgs pin (all packages of the ISOs and installed systems: kernel, OpenSSL, OpenSSH, nginx, PostgreSQL, Samba) dated from 2026-07-21. It now follows nixos-26.05 of 2026-10-25, and CI fails when the pin falls more than 30 days behind its channel.
+- Dependencies with known vulnerabilities the daemon does not call, upgraded: `go-acme/lego` 4.35.2 (was 4.33.0), `go-ldap/ldap` 3.4.15 with `Azure/go-ntlmssp` 0.1.1 (a malformed NTLM challenge could crash the LDAP client).
+
+### Fixed
+
+- **Settings › Features showed working features as disabled.** The tab listed HA clustering, NVMe-oF, SES enclosure monitoring, Active Directory, OIDC single sign-on and LACP bonding as "disabled" with switches, but nothing read those states: every one of these works whether its switch was on or off. The tab, its API (`/api/system/features`) and the code behind it are removed; the features are set up on their own pages as before.
+- **Changes failed after signing in until the page was reloaded** (since v5.3.0). The login page has no session, so its CSRF request was refused and the web interface kept a placeholder token; after the login every change (creating a pool, saving a setting) was refused with "Forbidden (Invalid CSRF token)" until a reload fetched the session's token. The token now belongs to the session: it is fetched with the first change of a new session and dropped at login and logout. Changes started at the same time share one token request (each request replaces the session's token). A change refused because another tab fetched a new token is sent again once with the current one; uploads, the configuration restore, the support bundle, diagnostics, custom icons and the API explorer do the same.
+- **A change that lost a sync conflict could disappear without a trace** (since v15.1.0). When the same resource was changed on two nodes and the default rule picked the other node's version, the losing node kept its change as a proposal only if it noticed the conflict first. If the winning node settled the conflict before then, the losing node simply took over the result, and its own change was never offered again. The losing node now applies the same rule when it receives the winner's resolution and keeps its change as a proposal either way. Which node noticed first depended on timing; a CI run of the two-node VM test caught it.
+- **Files › Download saved the error as the file** when the daemon refused the download (no permission, the file gone): the file then held the daemon's error message. The download now shows the error instead.
+- **The event log recorded every critical resource as disk.** Memory and file descriptors at their critical level are now recorded under their own names.
+
+### Removed
+
+- Startup code nothing used: the feature flag store (table `feature_flags`), an operation journal no operation wrote to (table `operation_journal`) with its startup "recovery" and rollback manager, a resource-guard middleware applied nowhere, and an unused ZFS consistency check. Migration 35 drops both tables. The resource watcher, health checks (`/api/health`) and the event log are unchanged.
+
+
 ## v16.0.1 (2026-10-24) - "Bedrock"
 
 ### Security

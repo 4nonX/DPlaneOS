@@ -24,6 +24,28 @@ for p in dplaneos-daemon dplaneos-daemon-cgo dplaneos-frontend iso iso-live defa
   names "packages.$SYSTEM" | grep -qx "$p" || { echo "ERROR: packages.$SYSTEM.$p is missing"; exit 1; }
 done
 
+# The daemon ships with the Go of daemon/go.mod's toolchain line, the one CI
+# tests and scans with govulncheck (nixpkgs' Go once lagged and the scan saw
+# none of the standard library vulnerabilities in the shipped daemon).
+want=$(sed -n 's/^toolchain go//p' "$FLAKE/daemon/go.mod")
+for sys in x86_64-linux aarch64-linux; do
+  for p in dplaneos-daemon dplaneos-daemon-cgo; do
+    got=$(nix eval --raw "$FLAKE#packages.$sys.$p.go.version")
+    [ "$got" = "$want" ] || { echo "ERROR: $sys $p is built with Go $got, daemon/go.mod says go$want"; exit 1; }
+  done
+done
+echo "daemon built with Go $want"
+
+# The OS packages come from the pinned nixpkgs: a pin far behind the channel
+# ships months of missing security fixes.
+# The node of the flake's own nixpkgs input (other inputs bring their own).
+node() { nix flake metadata --json "$FLAKE" | python3 -c 'import json,sys; l=json.load(sys.stdin)["locks"]; n=l["nodes"][l["nodes"][l["root"]]["inputs"]["nixpkgs"]]; print(n["locked"]["lastModified"] if sys.argv[1] == "time" else "github:%(owner)s/%(repo)s/%(ref)s" % n["original"])' "$1"; }
+pinned=$(node time)
+channel=$(nix flake metadata --json "$(node ref)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lastModified"])')
+behind=$(( (channel - pinned) / 86400 ))
+[ "$behind" -le 30 ] || { echo "ERROR: the nixpkgs pin is $behind days behind its channel; run: nix flake update nixpkgs"; exit 1; }
+echo "nixpkgs pin is $behind days behind its channel"
+
 count=0
 for kind in packages checks devShells; do
   list=$(names "$kind.$SYSTEM") # a failure here stops the script (set -e)

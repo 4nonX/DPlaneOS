@@ -459,6 +459,14 @@ func (s *Syncer) evaluate(p Peer) error {
 				s.setPeerStatus(r.UID, peerWaiting, fmt.Sprintf("pool %s is not imported on this node", r.ScopeID))
 				continue
 			}
+			// Kept before anything changes: a failure here leaves the live
+			// state and this node's head as they were, and the next round
+			// tries again.
+			if local != nil {
+				if err := s.keepIfOverruled(p, *local, r, anc); err != nil {
+					return err
+				}
+			}
 			detail := ""
 			if err := s.applyRemote(p, r.resource(), live); err != nil {
 				switch {
@@ -554,6 +562,54 @@ func (s *Syncer) settleConflict(p Peer, local, r Revision) error {
 		detail += "; " + reason + ": " + p.Name + " resolves it"
 	}
 	s.setPeerStatus(r.UID, peerConflict, detail)
+	return nil
+}
+
+// keepIfOverruled keeps this node's head local as a proposal when the peer
+// revision r it was fast-forwarded to passes over a merge with local as one
+// parent and the default rule gave the merge's other parent the win. That is
+// the resolution the other node records when it settles the conflict before
+// this node has seen it; without this the change made here would be
+// replaced without a trace.
+func (s *Syncer) keepIfOverruled(p Peer, local, r Revision, anc Ancestry) error {
+	if p.ID == GitPeerID || Policy(s.db, local.Scope) != PolicyAuto {
+		return nil
+	}
+	seen := map[string]bool{}
+	queue := []string{r.UID}
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		if u == "" || u == local.UID || seen[u] {
+			continue
+		}
+		seen[u] = true
+		parents, ok := anc[u]
+		if !ok {
+			continue
+		}
+		other := ""
+		switch local.UID {
+		case parents[0]:
+			other = parents[1]
+		case parents[1]:
+			other = parents[0]
+		}
+		if other != "" {
+			w, err := peerRevisionByUID(s.db, other)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if winner, reason := DefaultWinner(local, w.Revision); winner == WinnerRemote {
+				return keepAsProposal(s.db, p.ID, local, w.UID, reason)
+			}
+			return nil
+		}
+		queue = append(queue, parents[0], parents[1])
+	}
 	return nil
 }
 

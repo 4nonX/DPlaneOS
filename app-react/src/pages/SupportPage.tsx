@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MaintenancePanels } from './MaintenancePanels'
-import { api, getSessionId, getCsrfToken } from '@/lib/api'
+import { api, sessionFetch } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -42,13 +42,7 @@ export function SupportPage() {
   async function downloadBundle() {
     setDownloading(true)
     try {
-      const res = await fetch('/api/system/support-bundle', {
-        method: 'POST',
-        headers: {
-          'X-Session-ID': getSessionId() ?? '',
-          'X-CSRF-Token': getCsrfToken() ?? '',
-        },
-      })
+      const res = await sessionFetch('/api/system/support-bundle', { method: 'POST' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)

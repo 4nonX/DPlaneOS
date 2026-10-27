@@ -1,12 +1,11 @@
 /**
  * pages/SettingsPage.tsx - System Settings
  *
- * Tabs: General | NixOS | SSO / OIDC | Security | Features | Maintenance
+ * Tabs: General | NixOS | SSO / OIDC | Security | Maintenance
  *
  * General: hostname, timezone, MOTD - backed by /api/system/settings (key-value store)
  * NixOS: detect, validate, apply (with 60s confirm), generations list & rollback
  * Security: AES-256-GCM key rotation  POST /api/system/secrets/rotate
- * Features: enable/disable optional features, hardware requirements
  * Maintenance: configuration backup/restore (database and files)
  *
  * Calls:
@@ -19,9 +18,6 @@
  *   GET  /api/nixos/generations            → { success, generations: Generation[] }
  *   POST /api/nixos/rollback { generation } → { success }
  *   POST /api/system/secrets/rotate        → { success, rotated_count: number }
- *   GET  /api/system/features              → { success, features: Feature[] }
- *   POST /api/system/features/:id/enable   → { success }
- *   POST /api/system/features/:id/disable  → { success }
  *   GET  /api/system/config/backup?secrets=  → .tar.gz download
  *   GET  /api/system/config/backup/previous → .tar.gz of the configuration before the last restore
  *   GET  /api/system/config/restore         → { pending, in_cluster, previous_available, last_result }
@@ -31,7 +27,7 @@
 import { useState, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, sessionFetch } from '@/lib/api'
 import { TuningCard, SecretsStatusCard, NixOSBackupButton } from '@/components/settings/SystemCards'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -643,9 +639,8 @@ function MaintenanceTab() {
       form.append('backup', restoreFile)
       form.append('secrets', restoreSecrets ? '1' : '0')
       form.append('network', restoreNetwork ? '1' : '0')
-      const res = await fetch('/api/system/config/restore', {
+      const res = await sessionFetch('/api/system/config/restore', {
         method: 'POST',
-        headers: { 'X-Session-ID': getSessionId() ?? '', 'X-User': getUsername() ?? '', 'X-CSRF-Token': getCsrfToken() },
         body: form,
       })
       const body = await res.json().catch(() => ({ error: res.statusText }))
@@ -767,143 +762,10 @@ function MaintenanceTab() {
 }
 
 // ---------------------------------------------------------------------------
-// FeaturesTab
-// ---------------------------------------------------------------------------
-
-interface Feature {
-  id: string
-  name: string
-  description: string
-  state: 'disabled' | 'beta' | 'stable' | 'deprecated'
-  requires_hardware?: string
-}
-
-interface FeaturesResponse {
-  success: boolean
-  features: Feature[]
-}
-
-function FeaturesTab() {
-  const qc = useQueryClient()
-
-  const featuresQ = useQuery({
-    queryKey: ['system', 'features'],
-    queryFn: ({ signal }) => api.get<FeaturesResponse>('/api/system/features', signal),
-  })
-
-  const enable = useMutation({
-    mutationFn: (featureId: string) =>
-      api.post(`/api/system/features/${featureId}/enable`, { new_state: 'stable' }),
-    onSuccess: () => {
-      toast.success('Feature enabled')
-      qc.invalidateQueries({ queryKey: ['system', 'features'] })
-    },
-    onError: (e: Error) => toast.error('Failed to enable: ' + e.message),
-  })
-
-  const disable = useMutation({
-    mutationFn: (featureId: string) =>
-      api.post(`/api/system/features/${featureId}/disable`, {}),
-    onSuccess: () => {
-      toast.success('Feature disabled')
-      qc.invalidateQueries({ queryKey: ['system', 'features'] })
-    },
-    onError: (e: Error) => toast.error('Failed to disable: ' + e.message),
-  })
-
-  if (featuresQ.isLoading) {
-    return <Skeleton />
-  }
-
-  if (featuresQ.isError || !featuresQ.data) {
-    return <ErrorState error="Failed to load features" />
-  }
-
-  const features = featuresQ.data.features || []
-  const disabled = features.filter(f => f.state === 'disabled')
-  const enabled = features.filter(f => f.state !== 'disabled')
-
-  return (
-    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 24 }}>
-      {enabled.length > 0 && (
-        <div>
-          <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600, marginBottom: 12 }}>Enabled Features</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {enabled.map(f => (
-              <div key={f.id} className="card" style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{f.name}</div>
-                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{f.description}</div>
-                  {f.state === 'beta' && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--warning)', marginTop: 6 }}>
-                      ⚠ Beta: Not recommended for production
-                    </div>
-                  )}
-                  {f.state === 'deprecated' && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 6 }}>
-                      ⚠ Deprecated: Use a newer feature instead
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => disable.mutate(f.id)}
-                  disabled={disable.isPending}
-                  className="btn btn-ghost"
-                  style={{ minWidth: 80 }}
-                >
-                  {disable.isPending ? 'Disabling...' : 'Disable'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {disabled.length > 0 && (
-        <div>
-          <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600, marginBottom: 12 }}>
-            {enabled.length > 0 ? 'Available Features' : 'Features'}
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {disabled.map(f => (
-              <div key={f.id} className="card" style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'start', opacity: f.requires_hardware ? 0.6 : 1 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{f.name}</div>
-                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{f.description}</div>
-                  {f.requires_hardware && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 6 }}>
-                      Requires: {f.requires_hardware}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => enable.mutate(f.id)}
-                  disabled={enable.isPending || !!f.requires_hardware}
-                  className="btn btn-primary"
-                  style={{ minWidth: 80 }}
-                  title={f.requires_hardware ? `Your hardware doesn't support this feature` : ''}
-                >
-                  {enable.isPending ? 'Enabling...' : 'Enable'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {features.length === 0 && (
-        <div className="card" style={{ padding: 20, textAlign: 'center', color: 'var(--text-secondary)' }}>
-          No features found
-        </div>
-      )}
-    </div>
-  )
-}
-
 // SettingsPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'general' | 'nixos' | 'oidc' | 'security' | 'features' | 'maintenance'
+type Tab = 'general' | 'nixos' | 'oidc' | 'security' | 'maintenance'
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('general')
@@ -913,7 +775,6 @@ export function SettingsPage() {
     { id: 'nixos',       label: 'NixOS',       icon: 'terminal' },
     { id: 'oidc',        label: 'SSO / OIDC',  icon: 'key' },
     { id: 'security',    label: 'Security',    icon: 'lock' },
-    { id: 'features',    label: 'Features',    icon: 'extension' },
     { id: 'maintenance', label: 'Maintenance', icon: 'database' },
   ]
 
@@ -921,7 +782,7 @@ export function SettingsPage() {
     <div style={{ maxWidth: 860 }}>
       <div className="page-header">
         <h1 className="page-title">System Settings</h1>
-        <p className="page-subtitle">Hostname, timezone, MOTD, NixOS configuration, SSO, features, and maintenance</p>
+        <p className="page-subtitle">Hostname, timezone, MOTD, NixOS configuration, SSO, security and maintenance</p>
       </div>
 
       <div className="tabs-underline">
@@ -936,7 +797,6 @@ export function SettingsPage() {
       {tab === 'nixos'       && <NixOSTab />}
       {tab === 'oidc'        && <OIDCTab />}
       {tab === 'security'    && <SecurityTab />}
-      {tab === 'features'    && <FeaturesTab />}
       {tab === 'maintenance' && <MaintenanceTab />}
     </div>
   )

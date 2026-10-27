@@ -20,11 +20,8 @@ const (
 	EventOperationFailed   EventType = "operation_failed"
 	EventCircuitOpen       EventType = "circuit_open"
 	EventCircuitClosed     EventType = "circuit_closed"
-	EventFeatureEnabled    EventType = "feature_enabled"
-	EventFeatureDisabled   EventType = "feature_disabled"
 	EventResourceCritical  EventType = "resource_critical"
 	EventHardwareDetected  EventType = "hardware_detected"
-	EventRollbackApplied   EventType = "rollback_applied"
 	EventAuthFailure       EventType = "auth_failure"
 	EventConfigChanged     EventType = "config_changed"
 )
@@ -127,26 +124,6 @@ func (el *EventLogger) LogOperationFailed(ctx context.Context, opID, component, 
 	return el.LogEvent(ctx, event)
 }
 
-// LogFeatureChange logs when a feature is enabled/disabled.
-func (el *EventLogger) LogFeatureChange(ctx context.Context, featureID, state, reason string) error {
-	eventType := EventFeatureEnabled
-	if state == "disabled" {
-		eventType = EventFeatureDisabled
-	}
-
-	event := StructuredEvent{
-		EventType: eventType,
-		Component: "features",
-		Status:    "success",
-		Details: map[string]interface{}{
-			"feature":   featureID,
-			"new_state": state,
-			"reason":    reason,
-		},
-	}
-	return el.LogEvent(ctx, event)
-}
-
 // LogCircuitStateChange logs circuit breaker state transitions.
 func (el *EventLogger) LogCircuitStateChange(ctx context.Context, service, newState string) error {
 	eventType := EventCircuitOpen
@@ -189,83 +166,4 @@ func (el *EventLogger) LogHardwareDetected(ctx context.Context, profile map[stri
 		Details:   profile,
 	}
 	return el.LogEvent(ctx, event)
-}
-
-// LogRollbackApplied logs when a rollback is executed.
-func (el *EventLogger) LogRollbackApplied(ctx context.Context, opID string, reason string) error {
-	event := StructuredEvent{
-		EventType:   EventRollbackApplied,
-		Component:   "gitops",
-		OperationID: opID,
-		Status:      "success",
-		Details: map[string]interface{}{
-			"reason": reason,
-		},
-	}
-	return el.LogEvent(ctx, event)
-}
-
-// GetEventHistory retrieves audit events within a time range.
-func (el *EventLogger) GetEventHistory(ctx context.Context, from, to time.Time, limit int) ([]StructuredEvent, error) {
-	rows, err := el.db.QueryContext(ctx, `
-		SELECT id, timestamp, event_type, component, operation_id, user_id, status, details, ip_address, hmac
-		FROM audit_events
-		WHERE timestamp BETWEEN $1 AND $2
-		ORDER BY id DESC
-		LIMIT $3
-	`, from, to, limit)
-
-	if err != nil {
-		return nil, fmt.Errorf("query audit events failed: %w", err)
-	}
-	defer rows.Close()
-
-	var events []StructuredEvent
-	for rows.Next() {
-		var event StructuredEvent
-		var detailsJSON string
-
-		err := rows.Scan(&event.ID, &event.Timestamp, &event.EventType, &event.Component, &event.OperationID, &event.UserID, &event.Status, &detailsJSON, &event.IPAddress, &event.HMAC)
-		if err != nil {
-			continue
-		}
-
-		json.Unmarshal([]byte(detailsJSON), &event.Details)
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// VerifyAuditChain validates HMAC integrity from fromID to toID.
-// Returns true if all event HMACs are valid, false and the first broken ID otherwise.
-func (el *EventLogger) VerifyAuditChain(ctx context.Context, fromID, toID int64) (bool, int64, error) {
-	rows, err := el.db.QueryContext(ctx, `
-		SELECT id, timestamp, event_type, component, operation_id, status, hmac
-		FROM audit_events
-		WHERE id BETWEEN $1 AND $2
-		ORDER BY id
-	`, fromID, toID)
-
-	if err != nil {
-		return false, 0, fmt.Errorf("verify chain query failed: %w", err)
-	}
-	defer rows.Close()
-
-	// This would require the actual trigger computation logic to verify against.
-	// For now, we just ensure continuity without corruption (in production,
-	// call audit_verify_chain function in PostgreSQL).
-	for rows.Next() {
-		var id int64
-		var ts time.Time
-		var eventType, component, opID, status, hmac string
-		if err := rows.Scan(&id, &ts, &eventType, &component, &opID, &status, &hmac); err != nil {
-			return false, id, err
-		}
-		if hmac == "" {
-			return false, id, fmt.Errorf("event %d has empty hmac", id)
-		}
-	}
-
-	return true, 0, nil
 }

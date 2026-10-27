@@ -4,8 +4,9 @@
  * Single source of truth for all daemon communication.
  *
  * Rules:
- *  - CSRF token is fetched once from GET /api/csrf on app init (response: { success, csrf_token })
- *    and injected as X-CSRF-Token on every mutating (non-GET) request.
+ *  - The CSRF token belongs to the session: fetched from GET /api/csrf (response: { success, csrf_token })
+ *    once a session exists, dropped when the session changes, and sent as X-CSRF-Token on every
+ *    mutating (non-GET) request. Without a session nothing needs one (login and setup are exempt).
  *  - Session ID is stored in sessionStorage as 'session_id' (set on login).
  *  - Username is stored in sessionStorage as 'username' (set on login).
  *  - X-Session-ID and X-User headers are sent on every request (daemon validates session server-side).
@@ -35,31 +36,101 @@ export class ApiError extends Error {
 // ---------------------------------------------------------------------------
 
 let csrfToken: string | null = null
+// The fetch in progress: every caller waits for it, because each fetch
+// replaces the session's token on the daemon and would make the token of a
+// parallel fetch stale.
+let csrfPending: Promise<void> | null = null
+let csrfPendingSession = -1
+// Bumped when the session changes: a fetch made for the old session must
+// not store its token.
+let csrfSession = 0
 
-/** Fetch and cache the CSRF token. Called once on app startup via initCsrf(). */
-export async function initCsrf(): Promise<void> {
-  const res = await fetch('/api/csrf', { credentials: 'same-origin' })
-  if (!res.ok) {
-    if (getSessionId() === 'mock_session_id' || !getSessionId()) {
-      console.warn('[DevProxy] CSRF init failed, using mock token for preview mode')
-      csrfToken = 'mock_csrf_token'
+function fetchCsrf(): Promise<void> {
+  if (csrfPending && csrfPendingSession === csrfSession) return csrfPending
+  const session = csrfSession
+  const p = (async () => {
+    const sessionId = getSessionId()
+    if (!sessionId) {
+      csrfToken = null
       return
     }
-    throw new ApiError(res.status, `CSRF init failed: ${res.status} ${res.statusText}`)
-  }
-  const data = await res.json()
-  // Daemon returns: { success: true, csrf_token: "..." }
-  if (!data.success || !data.csrf_token) {
-    throw new ApiError(200, 'CSRF response missing csrf_token field')
-  }
-  csrfToken = data.csrf_token as string
+    if (import.meta.env.DEV && sessionId === 'mock_session_id') {
+      csrfToken = 'mock_csrf_token' // preview mode, development builds only
+      return
+    }
+    const res = await fetch('/api/csrf', { credentials: 'same-origin', headers: { 'X-Session-ID': sessionId } })
+    if (!res.ok) {
+      throw new ApiError(res.status, `CSRF init failed: ${res.status} ${res.statusText}`)
+    }
+    const data = await res.json()
+    // Daemon returns: { success: true, csrf_token: "..." }
+    if (!data.success || !data.csrf_token) {
+      throw new ApiError(200, 'CSRF response missing csrf_token field')
+    }
+    if (session === csrfSession) csrfToken = data.csrf_token as string
+  })()
+  csrfPending = p
+  csrfPendingSession = session
+  p.finally(() => { if (csrfPending === p) csrfPending = null }).catch(() => { /* the caller sees the error */ })
+  return p
 }
 
-export function getCsrfToken(): string {
-  if (!csrfToken) {
-    throw new Error('CSRF token not initialised - initCsrf() must complete before any mutation')
-  }
+/**
+ * Fetch and cache the CSRF token of the current session. Without a session
+ * there is none to fetch (the daemon answers 401): login, the second login
+ * step and the setup wizard do not need one.
+ */
+export function initCsrf(): Promise<void> {
+  return fetchCsrf()
+}
+
+/** The current session's CSRF token, fetched first when there is none yet. */
+export async function ensureCsrfToken(): Promise<string> {
+  if (!csrfToken) await fetchCsrf()
+  if (!csrfToken) throw new Error('No session: log in first')
   return csrfToken
+}
+
+/**
+ * A token the daemon refused (another tab fetched a new one): fetch the
+ * current one, once for all requests that were refused with the same token.
+ */
+async function refreshCsrfToken(refused: string): Promise<string> {
+  if (csrfToken === refused) {
+    csrfToken = null
+    await fetchCsrf()
+  }
+  return ensureCsrfToken()
+}
+
+/** Whether res is the daemon refusing a stale CSRF token. */
+async function refusedCsrf(res: Response): Promise<boolean> {
+  return res.status === 403 && (await res.clone().text()).includes('Invalid CSRF token')
+}
+
+/**
+ * fetch for requests apiFetch cannot make (uploads, downloads, streams):
+ * sends the session headers and, on a change, the CSRF token, and sends the
+ * change once more when the daemon refused a stale token. Returns the raw
+ * response; the caller checks it.
+ */
+export async function sessionFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase()
+  const headers = new Headers(init.headers)
+  const sessionId = getSessionId()
+  const username = getUsername()
+  if (sessionId) headers.set('X-Session-ID', sessionId)
+  if (username) headers.set('X-User', username)
+  const mutating = method !== 'GET' && method !== 'HEAD'
+  if (mutating && sessionId) headers.set('X-CSRF-Token', await ensureCsrfToken())
+  const send = () => fetch(path, { credentials: 'same-origin', ...init, headers })
+  let res = await send()
+  const sent = headers.get('X-CSRF-Token')
+  if (mutating && sent && await refusedCsrf(res)) {
+    headers.set('X-CSRF-Token', await refreshCsrfToken(sent))
+    res = await send()
+  }
+  return res
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +152,8 @@ export function storeSession(sessionId: string, username: string, persistent?: b
   const store = persistent ? localStorage : sessionStorage
   store.setItem('session_id', sessionId)
   store.setItem('username', username)
+  csrfToken = null // the new session's token is fetched with its first change
+  csrfSession++
 }
 
 export function clearSession(): void {
@@ -88,6 +161,8 @@ export function clearSession(): void {
   sessionStorage.removeItem('username')
   localStorage.removeItem('session_id')
   localStorage.removeItem('username')
+  csrfToken = null
+  csrfSession++
 }
 
 // ---------------------------------------------------------------------------
@@ -116,15 +191,12 @@ export async function apiFetch<T>(
 
   const headers: Record<string, string> = {}
 
+  const sessionId = getSessionId()
   if (isMutating) {
-    if (!csrfToken) {
-      await initCsrf()
-    }
     headers['Content-Type'] = 'application/json'
-    headers['X-CSRF-Token'] = getCsrfToken()
+    if (sessionId) headers['X-CSRF-Token'] = await ensureCsrfToken()
   }
 
-  const sessionId = getSessionId()
   const username = getUsername()
   if (sessionId) headers['X-Session-ID'] = sessionId
   if (username) headers['X-User'] = username
@@ -274,13 +346,22 @@ export async function apiFetch<T>(
     }
   }
 
-  const res = await fetch(path, {
+  const send = () => fetch(path, {
     method,
     headers,
     credentials: 'same-origin',
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
   })
+  let res = await send()
+
+  // The session's token changed (another tab fetched a new one): fetch it
+  // again and send the change once more.
+  const sent = headers['X-CSRF-Token']
+  if (isMutating && sessionId && sent && await refusedCsrf(res)) {
+    headers['X-CSRF-Token'] = await refreshCsrfToken(sent)
+    res = await send()
+  }
 
   // Auth failure → redirect to login
   if (res.status === 401) {

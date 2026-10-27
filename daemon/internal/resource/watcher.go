@@ -15,29 +15,29 @@ import (
 
 // ResourceStatus tracks current resource usage.
 type ResourceStatus struct {
-	Timestamp       time.Time
-	DiskUsagePercent int    // 0-100
-	DiskAvailableGB  float64
-	MemoryUsageBytes uint64
-	MemoryLimitBytes uint64
-	MemoryPercent    int    // 0-100
-	OpenFileCount    int
-	FileDescriptorMax int
+	Timestamp             time.Time
+	DiskUsagePercent      int // 0-100
+	DiskAvailableGB       float64
+	MemoryUsageBytes      uint64
+	MemoryLimitBytes      uint64
+	MemoryPercent         int // 0-100
+	OpenFileCount         int
+	FileDescriptorMax     int
 	FileDescriptorPercent int
-	Status           string // "OK", "DEGRADED", "CRITICAL"
-	Warnings         []string
+	Status                string // "OK", "DEGRADED", "CRITICAL"
+	Warnings              []string
 }
 
 // Watcher monitors system resources and triggers callbacks on threshold violations.
 type Watcher struct {
-	mu                sync.RWMutex
-	lastStatus        *ResourceStatus
-	checkInterval     time.Duration
-	stopChan          chan bool
-	diskCheckPaths    []string // paths to monitor (e.g., ["/persist", "/"])
-	memoryLimitBytes  uint64
-	onCritical        func(ResourceStatus) // callback when CRITICAL threshold hit
-	onDegraded        func(ResourceStatus) // callback when DEGRADED threshold hit
+	mu               sync.RWMutex
+	lastStatus       *ResourceStatus
+	checkInterval    time.Duration
+	stopChan         chan bool
+	diskCheckPaths   []string // paths to monitor (e.g., ["/persist", "/"])
+	memoryLimitBytes uint64
+	onCritical       func(ResourceStatus) // callback when CRITICAL threshold hit
+	onDegraded       func(ResourceStatus) // callback when DEGRADED threshold hit
 }
 
 // NewWatcher creates a resource watcher.
@@ -135,7 +135,7 @@ func (w *Watcher) check() ResourceStatus {
 		status.DiskUsagePercent = diskUsage.Percent
 		status.DiskAvailableGB = diskUsage.AvailableGB
 
-		if diskUsage.Percent >= 98 {
+		if diskUsage.Percent >= DiskCritical {
 			status.Status = "CRITICAL"
 			status.Warnings = append(status.Warnings, fmt.Sprintf("Disk CRITICAL: %d%% used", diskUsage.Percent))
 		} else if diskUsage.Percent >= 95 {
@@ -154,7 +154,7 @@ func (w *Watcher) check() ResourceStatus {
 	status.MemoryLimitBytes = memStatus.LimitBytes
 	status.MemoryPercent = memStatus.Percent
 
-	if memStatus.Percent >= 95 {
+	if memStatus.Percent >= MemoryCritical {
 		status.Status = "CRITICAL"
 		status.Warnings = append(status.Warnings, fmt.Sprintf("Memory CRITICAL: %d%% used", memStatus.Percent))
 	} else if memStatus.Percent >= 85 {
@@ -170,7 +170,7 @@ func (w *Watcher) check() ResourceStatus {
 	status.FileDescriptorMax = fdStatus.Max
 	status.FileDescriptorPercent = fdStatus.Percent
 
-	if fdStatus.Percent >= 90 {
+	if fdStatus.Percent >= FileDescriptorsCritical {
 		status.Status = "CRITICAL"
 		status.Warnings = append(status.Warnings, fmt.Sprintf("File descriptors CRITICAL: %d/%d (%.1f%%)", fdStatus.Open, fdStatus.Max, float64(fdStatus.Percent)))
 	} else if fdStatus.Percent >= 80 {
@@ -184,8 +184,8 @@ func (w *Watcher) check() ResourceStatus {
 }
 
 type diskUsage struct {
-	Percent      int
-	AvailableGB  float64
+	Percent     int
+	AvailableGB float64
 }
 
 func (w *Watcher) checkDisk(path string) diskUsage {
@@ -295,4 +295,27 @@ func (w *Watcher) checkFileDescriptors() fdStatus {
 		Max:     maxFD,
 		Percent: percent,
 	}
+}
+
+// Critical levels (percent used).
+const (
+	DiskCritical            = 98
+	MemoryCritical          = 95
+	FileDescriptorsCritical = 90
+)
+
+// CriticalResources returns each resource at its critical level with its use
+// in percent ("disk", "memory", "file_descriptors").
+func (s ResourceStatus) CriticalResources() map[string]int {
+	out := map[string]int{}
+	if s.DiskUsagePercent >= DiskCritical {
+		out["disk"] = s.DiskUsagePercent
+	}
+	if s.MemoryPercent >= MemoryCritical {
+		out["memory"] = s.MemoryPercent
+	}
+	if s.FileDescriptorPercent >= FileDescriptorsCritical {
+		out["file_descriptors"] = s.FileDescriptorPercent
+	}
+	return out
 }

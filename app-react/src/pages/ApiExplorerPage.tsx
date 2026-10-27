@@ -7,7 +7,7 @@
 
 import { useState, useId } from 'react'
 import { Icon } from '@/components/ui/Icon'
-import { getCsrfToken, getSessionId, getUsername } from '@/lib/api'
+import { sessionFetch } from '@/lib/api'
 
 // ---------------------------------------------------------------------------
 // Endpoint catalog
@@ -161,19 +161,12 @@ async function explorerFetch(method: HttpMethod, path: string, body?: unknown): 
   const start = Date.now()
   const headers: Record<string, string> = { Accept: 'application/json' }
 
-  if (method !== 'GET') {
-    headers['Content-Type'] = 'application/json'
-    try { headers['X-CSRF-Token'] = getCsrfToken() } catch { /* not initialized */ }
-  }
-  const sid = getSessionId(); const user = getUsername()
-  if (sid) headers['X-Session-ID'] = sid
-  if (user) headers['X-User'] = user
+  if (method !== 'GET') headers['Content-Type'] = 'application/json'
 
   try {
-    const res = await fetch(path, {
+    const res = await sessionFetch(path, {
       method,
       headers,
-      credentials: 'same-origin',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     let data: unknown

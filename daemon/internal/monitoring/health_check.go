@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"dplaned/internal/features"
 	"dplaned/internal/hardware"
 	"dplaned/internal/resilience"
 	"dplaned/internal/resource"
@@ -52,7 +51,6 @@ type Checker struct {
 	resourceWatcher *resource.Watcher
 	circuitPool     *resilience.Pool
 	hwProfile       *hardware.Profile
-	featureManager  *features.Manager
 	enabledChecks   map[string]bool
 	db              *sql.DB
 	checks          map[string]func(context.Context) SubsystemHealth
@@ -64,7 +62,6 @@ func NewChecker(
 	resourceWatcher *resource.Watcher,
 	circuitPool *resilience.Pool,
 	hwProfile *hardware.Profile,
-	featureManager *features.Manager,
 ) *Checker {
 	return &Checker{
 		lastHealth:      &SystemHealth{Subsystems: make(map[string]SubsystemHealth)},
@@ -72,7 +69,6 @@ func NewChecker(
 		resourceWatcher: resourceWatcher,
 		circuitPool:     circuitPool,
 		hwProfile:       hwProfile,
-		featureManager:  featureManager,
 		enabledChecks:   make(map[string]bool),
 		checks:          make(map[string]func(context.Context) SubsystemHealth),
 		log: func(msg string, args ...interface{}) {

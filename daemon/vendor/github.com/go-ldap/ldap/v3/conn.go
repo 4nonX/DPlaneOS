@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -112,7 +113,11 @@ type Conn struct {
 	outstandingRequests uint
 	messageMutex        sync.Mutex
 
-	err error
+	// errMutex guards err only. It is a leaf lock: processMessages and reader
+	// record errors while another goroutine may hold messageMutex, so err must
+	// not share messageMutex or those writers could deadlock.
+	errMutex sync.Mutex
+	err      error
 }
 
 var _ Client = &Conn{}
@@ -143,7 +148,8 @@ func DialWithTLSConfig(tc *tls.Config) DialOpt {
 
 // DialWithTLSDialer is a wrapper for DialWithTLSConfig with the option to
 // specify a net.Dialer to for example define a timeout or a custom resolver.
-// @deprecated Use DialWithDialer and DialWithTLSConfig instead
+//
+// Deprecated:  Use DialWithDialer and DialWithTLSConfig instead
 func DialWithTLSDialer(tlsConfig *tls.Config, dialer *net.Dialer) DialOpt {
 	return func(dc *DialContext) {
 		dc.tlsConfig = tlsConfig
@@ -159,10 +165,18 @@ type DialContext struct {
 
 func (dc *DialContext) dial(u *url.URL) (net.Conn, error) {
 	if u.Scheme == "ldapi" {
-		if u.Path == "" || u.Path == "/" {
-			u.Path = "/var/run/slapd/ldapi"
+		// RFC 4516 (and draft-chu-ldap-ldapi) put the socket path in the
+		// host component, percent-encoded; the path is an optional DN.
+		// parseLDAPURL has already decoded the host. Accept the older
+		// ldapi:///path form too so existing callers keep working.
+		path := u.Host
+		if path == "" {
+			path = u.Path
 		}
-		return dc.dialer.Dial("unix", u.Path)
+		if path == "" || path == "/" {
+			path = "/var/run/slapd/ldapi"
+		}
+		return dc.dialer.Dial("unix", path)
 	}
 
 	host, port, err := net.SplitHostPort(u.Host)
@@ -190,12 +204,13 @@ func (dc *DialContext) dial(u *url.URL) (net.Conn, error) {
 		return tls.DialWithDialer(dc.dialer, "tcp", net.JoinHostPort(host, port), dc.tlsConfig)
 	}
 
-	return nil, fmt.Errorf("Unknown scheme '%s'", u.Scheme)
+	return nil, fmt.Errorf("unknown scheme '%s'", u.Scheme)
 }
 
 // Dial connects to the given address on the given network using net.Dial
 // and then returns a new Conn for the connection.
-// @deprecated Use DialURL instead.
+//
+// Deprecated:  Use DialURL instead.
 func Dial(network, addr string) (*Conn, error) {
 	c, err := net.DialTimeout(network, addr, DefaultTimeout)
 	if err != nil {
@@ -208,7 +223,8 @@ func Dial(network, addr string) (*Conn, error) {
 
 // DialTLS connects to the given address on the given network using tls.Dial
 // and then returns a new Conn for the connection.
-// @deprecated Use DialURL instead.
+//
+// Deprecated:  Use DialURL instead.
 func DialTLS(network, addr string, config *tls.Config) (*Conn, error) {
 	c, err := tls.DialWithDialer(&net.Dialer{Timeout: DefaultTimeout}, network, addr, config)
 	if err != nil {
@@ -219,12 +235,33 @@ func DialTLS(network, addr string, config *tls.Config) (*Conn, error) {
 	return conn, nil
 }
 
+// parseLDAPURL parses an LDAP URL. It defers to net/url for the common
+// ldap/ldaps/cldap schemes, but handles ldapi specially: the spec puts the
+// unix socket path in the host, percent-encoded with %2F, and net/url rejects
+// that as invalid. Pull the host out manually and decode it.
+func parseLDAPURL(addr string) (*url.URL, error) {
+	const ldapi = "ldapi://"
+	if !strings.HasPrefix(addr, ldapi) {
+		return url.Parse(addr)
+	}
+	rest := addr[len(ldapi):]
+	host, path := rest, ""
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		host, path = rest[:i], rest[i:]
+	}
+	decodedHost, err := url.PathUnescape(host)
+	if err != nil {
+		return nil, fmt.Errorf("ldapi: invalid host %q: %w", host, err)
+	}
+	return &url.URL{Scheme: "ldapi", Host: decodedHost, Path: path}, nil
+}
+
 // DialURL connects to the given ldap URL.
 // The following schemas are supported: ldap://, ldaps://, ldapi://,
 // and cldap:// (RFC1798, deprecated but used by Active Directory).
 // On success a new Conn for the connection is returned.
 func DialURL(addr string, opts ...DialOpt) (*Conn, error) {
-	u, err := url.Parse(addr)
+	u, err := parseLDAPURL(addr)
 	if err != nil {
 		return nil, NewError(ErrorNetwork, err)
 	}
@@ -262,7 +299,11 @@ func NewConn(conn net.Conn, isTLS bool) *Conn {
 	return l
 }
 
-// Start initializes goroutines to read responses and process messages
+// Start initialises goroutines to read replies and process messages.
+// Warning: Calling this function in addition to Dial or DialURL
+// may cause race conditions.
+//
+// See: https://github.com/go-ldap/ldap/issues/356
 func (l *Conn) Start() {
 	go l.reader()
 	go l.processMessages()
@@ -331,9 +372,19 @@ func (l *Conn) nextMessageID() int64 {
 // GetLastError returns the last recorded error from goroutines like processMessages and reader.
 // Only the last recorded error will be returned.
 func (l *Conn) GetLastError() error {
-	l.messageMutex.Lock()
-	defer l.messageMutex.Unlock()
+	l.errMutex.Lock()
+	defer l.errMutex.Unlock()
 	return l.err
+}
+
+// setError records the connection's last error. The background goroutines that
+// call it (processMessages, reader, the per-request timeout helper and the
+// SearchAsync worker) run concurrently with callers of GetLastError, so the
+// write must take the mutex the getter reads under.
+func (l *Conn) setError(err error) {
+	l.errMutex.Lock()
+	defer l.errMutex.Unlock()
+	l.err = err
 }
 
 // StartTLS sends the command to start a TLS session and then creates a new TLS Client
@@ -412,6 +463,13 @@ func (l *Conn) sendMessageWithFlags(packet *ber.Packet, flags sendMessageFlags) 
 	if l.IsClosing() {
 		return nil, NewError(ErrorNetwork, errors.New("ldap: connection closed"))
 	}
+	messageID, err := packetInt64At(packet, 0)
+	if err != nil {
+		// The packet is built by this package, so a malformed one is our bug,
+		// not a network failure: return the malformed-packet error as-is
+		// instead of nesting it inside ErrorNetwork.
+		return nil, err
+	}
 	l.messageMutex.Lock()
 	l.Debug.Printf("flags&startTLS = %d", flags&startTLS)
 	if l.isStartingTLS {
@@ -430,7 +488,6 @@ func (l *Conn) sendMessageWithFlags(packet *ber.Packet, flags sendMessageFlags) 
 	l.messageMutex.Unlock()
 
 	responses := make(chan *PacketResponse)
-	messageID := packet.Children[0].Value.(int64)
 	message := &messagePacket{
 		Op:        MessageRequest,
 		MessageID: messageID,
@@ -484,7 +541,7 @@ func (l *Conn) sendProcessMessage(message *messagePacket) bool {
 func (l *Conn) processMessages() {
 	defer func() {
 		if err := recover(); err != nil {
-			l.err = fmt.Errorf("ldap: recovered panic in processMessages: %v", err)
+			l.setError(fmt.Errorf("ldap: recovered panic in processMessages: %v", err))
 		}
 		for messageID, msgCtx := range l.messageContexts {
 			// If we are closing due to an error, inform anyone who
@@ -534,7 +591,7 @@ func (l *Conn) processMessages() {
 						timer := time.NewTimer(time.Duration(requestTimeout))
 						defer func() {
 							if err := recover(); err != nil {
-								l.err = fmt.Errorf("ldap: recovered panic in RequestTimeout: %v", err)
+								l.setError(fmt.Errorf("ldap: recovered panic in RequestTimeout: %v", err))
 							}
 
 							timer.Stop()
@@ -556,7 +613,7 @@ func (l *Conn) processMessages() {
 				if msgCtx, ok := l.messageContexts[message.MessageID]; ok {
 					msgCtx.sendResponse(&PacketResponse{message.Packet, nil}, time.Duration(l.getTimeout()))
 				} else {
-					l.err = fmt.Errorf("ldap: received unexpected message %d, %v", message.MessageID, l.IsClosing())
+					l.setError(fmt.Errorf("ldap: received unexpected message %d, %v", message.MessageID, l.IsClosing()))
 					l.Debug.PrintPacket(message.Packet)
 				}
 			case MessageTimeout:
@@ -583,7 +640,7 @@ func (l *Conn) reader() {
 	cleanstop := false
 	defer func() {
 		if err := recover(); err != nil {
-			l.err = fmt.Errorf("ldap: recovered panic in reader: %v", err)
+			l.setError(fmt.Errorf("ldap: recovered panic in reader: %v", err))
 		}
 		if !cleanstop {
 			l.Close()
@@ -608,8 +665,9 @@ func (l *Conn) reader() {
 		if err := addLDAPDescriptions(packet); err != nil {
 			l.Debug.Printf("descriptions error: %s", err)
 		}
-		if len(packet.Children) == 0 {
-			l.Debug.Printf("Received bad ldap packet")
+		messageID, err := packetInt64At(packet, 0)
+		if err != nil {
+			l.Debug.Printf("Received bad ldap packet: %s", err)
 			continue
 		}
 		l.messageMutex.Lock()
@@ -619,7 +677,7 @@ func (l *Conn) reader() {
 		l.messageMutex.Unlock()
 		message := &messagePacket{
 			Op:        MessageResponse,
-			MessageID: packet.Children[0].Value.(int64),
+			MessageID: messageID,
 			Packet:    packet,
 		}
 		if !l.sendProcessMessage(message) {

@@ -156,18 +156,11 @@ jobs:
       - name: Vulnerability scan (govulncheck)
         working-directory: daemon
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest ./... 2>&1 | tee /tmp/vuln.txt; EC=${PIPESTATUS[0]}
-          # GO-2026-5970 (golang.org/x/text infinite loop) is an indirect dependency
-          # waiting for transitive upgrades to v0.39.0+. All Go stdlib vulnerabilities
-          # (crypto/tls, net/textproto, crypto/x509) fixed by nixpkgs 26.05 upgrade.
-          KNOWN=1
-          FOUND=$(grep -c "^Vulnerability #" /tmp/vuln.txt 2>/dev/null || echo 0)
-          if [ "$EC" -ne 0 ] && [ "$FOUND" -gt "$KNOWN" ]; then
-            echo "UNEXPECTED VULNERABILITIES (expected $KNOWN tracked, found $FOUND)"
-            exit 1
-          elif [ "$EC" -ne 0 ]; then
-            echo "NOTE: $FOUND known tracked CVE(s) - not blocking"
-          fi
+          # Any vulnerability the code reaches fails the build. The scan runs
+          # with go.mod's toolchain, which the flake builds the shipped daemon
+          # with (.github/scripts/eval-flake.sh checks they agree).
+          go version
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Build binaries (amd64 & arm64)
         working-directory: daemon

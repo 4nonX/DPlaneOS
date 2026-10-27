@@ -211,5 +211,9 @@ in
 
   services.timesyncd.enable = lib.mkDefault true;
   documentation.enable = lib.mkDefault false;
+  # The witness has no pools; ZFS comes in only through the image defaults.
+  # Never force-import a root pool (the default before 26.11).
+  boot.zfs.forceImportRoot = false;
+
   system.stateVersion = "26.05";
 }

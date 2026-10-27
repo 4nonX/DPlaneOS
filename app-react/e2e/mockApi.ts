@@ -8,9 +8,14 @@
 
 import type { Page, Request } from '@playwright/test'
 
-export type Handler = (req: { body: any; query: URLSearchParams; params: Record<string, string> }) => unknown | Promise<unknown>
+export type Handler = (req: { body: any; query: URLSearchParams; params: Record<string, string>; headers: Record<string, string> }) => unknown | Promise<unknown>
 
-export interface Call { method: string; path: string; body: any }
+/** A handler result with an HTTP status other than 200. */
+export class Status {
+  constructor(public code: number, public body: unknown) {}
+}
+
+export interface Call { method: string; path: string; body: any; headers: Record<string, string> }
 
 export class MockApi {
   calls: Call[] = []
@@ -30,18 +35,25 @@ export class MockApi {
     return this.calls.filter(c => c.method === method && c.path === path).map(c => c.body)
   }
 
-  async install(page: Page) {
+  /** loggedIn: false starts without a stored session (the login page). */
+  async install(page: Page, { loggedIn = true } = {}) {
     // A logged-in admin session.
-    await page.addInitScript(() => {
-      sessionStorage.setItem('session_id', 'e2e-session')
-      sessionStorage.setItem('username', 'admin')
-    })
+    if (loggedIn) {
+      await page.addInitScript(() => {
+        sessionStorage.setItem('session_id', 'e2e-session')
+        sessionStorage.setItem('username', 'admin')
+      })
+    }
+    // Defaults: handlers a test registered come first.
+    const routes = this.routes
+    this.routes = []
     this.on('GET', '/api/csrf', { success: true, csrf_token: 'e2e-csrf' })
     this.on('GET', '/api/auth/check', { success: true, authenticated: true })
     this.on('GET', '/api/auth/session', {
       success: true,
       user: { id: 1, username: 'admin', email: 'admin@example.lan', role: 'admin', must_change_password: false, source: 'local' },
     })
+    this.routes = [...routes, ...this.routes]
     await page.route(url => new URL(url).pathname.startsWith('/api/'), async route => {
       const req: Request = route.request()
       const url = new URL(req.url())
@@ -50,15 +62,17 @@ export class MockApi {
       if (raw) {
         try { body = JSON.parse(raw) } catch { body = raw }
       }
-      this.calls.push({ method: req.method(), path: url.pathname, body })
+      const headers = req.headers()
+      this.calls.push({ method: req.method(), path: url.pathname, body, headers })
       for (const r of this.routes) {
         if (r.method !== req.method()) continue
         const m = r.re.exec(url.pathname)
         if (!m) continue
         const params: Record<string, string> = {}
         r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]) })
-        const res = await r.fn({ body, query: url.searchParams, params })
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(res) })
+        const res = await r.fn({ body, query: url.searchParams, params, headers })
+        const status = res instanceof Status ? res.code : 200
+        await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(res instanceof Status ? res.body : res) })
         return
       }
       this.unhandled.push(`${req.method()} ${url.pathname}`)
